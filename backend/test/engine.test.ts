@@ -186,3 +186,22 @@ describe('Camila sintética', () => {
     expect(m.h1_captureToAppointment.sent).toBe(0);
   });
 });
+
+import { CloudflareAiParser } from '../src/intent.js';
+import { vi } from 'vitest';
+
+describe('Cloudflare Workers AI', () => {
+  it('clasifica vía REST y tolera fallas', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch');
+    spy.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { response: ' Move.\n' } })));
+    const p = new CloudflareAiParser('acc', 'tok');
+    expect(await p.classify('no llego, junta eterna')).toBe('move');
+    expect(String(spy.mock.calls[0]![0])).toContain('/accounts/acc/ai/run/@cf/meta/llama-3.1-8b-instruct');
+
+    spy.mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    expect(await p.classify('x')).toBeNull();
+    spy.mockRejectedValueOnce(new Error('red'));
+    expect(await p.classify('x')).toBeNull();
+    spy.mockRestore();
+  });
+});

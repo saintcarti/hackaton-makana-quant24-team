@@ -23,7 +23,7 @@ pnpm dev            # http://localhost:8787/api/health
 pnpm exec vitest run
 ```
 
-Sin variables de entorno funciona en memoria. Para Telegram, persistencia y clasificación con GLM, ver `backend/.env.example`.
+Sin variables de entorno funciona en memoria. Para Telegram, persistencia y clasificación con Cloudflare Workers AI, ver `backend/.env.example`.
 
 ## Reglas del evento
 

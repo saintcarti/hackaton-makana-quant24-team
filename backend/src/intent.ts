@@ -29,45 +29,52 @@ export interface LlmParser {
   classify(text: string): Promise<Intent | null>;
 }
 
+const CLASSIFY_PROMPT =
+  'Clasificas el mensaje de una usuaria que agenda su cita de gimnasio. Responde SOLO una palabra de esta lista: move (quiere cambiar o no puede ir hoy), done (ya entrenó), skip_week (no quiere esta semana), pain (menciona dolor o lesión), propose (quiere que le propongan horarios), unknown.';
+
+const VALID_INTENTS: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose', 'unknown'];
+
+function toIntent(raw: string | undefined): Intent | null {
+  const word = raw?.trim().toLowerCase().replace(/[^a-z_]/g, '');
+  return VALID_INTENTS.includes(word as Intent) ? (word as Intent) : null;
+}
+
 /**
- * GLM (API compatible con OpenAI chat/completions) solo para CLASIFICAR lenguaje natural
- * cuando las reglas no entienden. Nunca redacta mensajes: el tono lo garantizan las plantillas.
+ * Cloudflare Workers AI (REST) solo para CLASIFICAR lenguaje natural cuando las reglas
+ * no entienden. Nunca redacta mensajes: el tono lo garantizan las plantillas.
+ * Funciona desde cualquier host (Vercel, local) con account id + API token con permiso Workers AI.
  */
-export class GlmParser implements LlmParser {
+export class CloudflareAiParser implements LlmParser {
   constructor(
-    private apiKey: string,
-    private baseUrl = 'https://open.bigmodel.cn/api/paas/v4',
-    private model = 'glm-4-flash',
-    private timeoutMs = 3500,
+    private accountId: string,
+    private apiToken: string,
+    private model = '@cf/meta/llama-3.1-8b-instruct',
+    private timeoutMs = 4000,
   ) {}
 
   async classify(text: string): Promise<Intent | null> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
-      const res = await fetch(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.model,
-          temperature: 0,
-          max_tokens: 10,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Clasificas el mensaje de una usuaria que agenda su cita de gimnasio. Responde SOLO una palabra de esta lista: move (quiere cambiar/no puede ir hoy), done (ya entrenó), skip_week (no quiere esta semana), pain (menciona dolor o lesión), propose (quiere que le propongan horarios), unknown.',
-            },
-            { role: 'user', content: text.slice(0, 300) },
-          ],
-        }),
-      });
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/ai/run/${this.model}`,
+        {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { Authorization: `Bearer ${this.apiToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            max_tokens: 8,
+            temperature: 0,
+            messages: [
+              { role: 'system', content: CLASSIFY_PROMPT },
+              { role: 'user', content: text.slice(0, 300) },
+            ],
+          }),
+        },
+      );
       if (!res.ok) return null;
-      const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const word = json.choices?.[0]?.message?.content?.trim().toLowerCase().replace(/[^a-z_]/g, '');
-      const valid: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose', 'unknown'];
-      return valid.includes(word as Intent) ? (word as Intent) : null;
+      const json = (await res.json()) as { success?: boolean; result?: { response?: string } };
+      return json.success === false ? null : toIntent(json.result?.response);
     } catch {
       return null;
     } finally {
@@ -77,6 +84,6 @@ export class GlmParser implements LlmParser {
 }
 
 export function parserFromEnv(env: NodeJS.ProcessEnv = process.env): LlmParser | null {
-  if (!env.GLM_API_KEY) return null;
-  return new GlmParser(env.GLM_API_KEY, env.GLM_BASE_URL, env.GLM_MODEL);
+  if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) return null;
+  return new CloudflareAiParser(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_API_TOKEN, env.CF_AI_MODEL || undefined);
 }
