@@ -14,6 +14,14 @@ export interface User {
   /** Hora preferida dentro de la ventana, "HH:MM". */
   preferredTime: string;
   channel: { type: ChannelKind; chatId?: number };
+  /** Horario del gym, "HH:MM". Si falta, solo manda la ventana. */
+  gymHours?: { open: string; close: string };
+  /** Duración de la sesión en minutos (30 | 40 | 50 | 60). Por defecto 40. */
+  sessionMin?: number;
+  /** Veces por semana que quiere ir (1 | 2 | 3). Hoy el flujo dominical agenda una; el resto es fase 2. */
+  perWeek?: number;
+  /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
+  days?: number[];
   synthetic: boolean;
   /** MUEVEs seguidos sin visita (regla anti-snooze). */
   consecutiveMoves: number;
@@ -134,6 +142,8 @@ export interface DB {
   seq: number;
   /** Conexiones de Google Calendar por usuaria (secretos: no exponer). */
   google?: Record<string, GoogleLink>;
+  /** Bloques ocupados informados por el front (solo inicio y fin, ms epoch), por usuaria y semana. */
+  busy?: Record<string, Record<string, Array<[number, number]>>>;
   /** Offset del reloj de demo en ms (0 = reloj real). */
   clockOffsetMs: number;
 }

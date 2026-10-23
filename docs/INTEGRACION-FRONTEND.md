@@ -172,6 +172,13 @@ Todas son `POST`, cuerpo opcional, y devuelven `{ appointment, replies, now }`.
 | GET | `/meta` | Zona horaria, `demoUserId`, hora actual del backend, si Telegram está activo |
 | GET | `/health` | `{ ok: true }` |
 
+### Reglas de la sesión y disponibilidad
+
+| Método | Ruta | Cuerpo → respuesta |
+|---|---|---|
+| PATCH | `/users/:id/preferences` | `{ gymHours?: {open,close}, window?: {start,end}, sessionMin?: 30\|40\|50\|60, perWeek?, days?: number[] }` (todo opcional, merge) → `{ user }`. Las reglas aplican a las **próximas** propuestas (captura dominical, «mueve», renegociación); una cita ya agendada no cambia. La sesión debe caber entera en `window ∩ gymHours`; si no cabe en ningún día, `weekly-capture` responde 409 `no_slots`. `perWeek > 1` se guarda pero el flujo dominical sigue agendando una cita por semana (fase 2). |
+| POST | `/users/:id/busy` | `{ weekOf: "YYYY-MM-DD", intervals: [{start, end}] }` (ISO con zona) → `{ ok, count }`. Reemplaza los bloques ocupados de esa semana (lista vacía los borra). Solo inicio y fin, sin títulos (R2). El agente los esquiva igual que a un calendario conectado. Sirve para el plan B sin Google. |
+
 ### Google Calendar (conexión real)
 
 Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendario, la mueve cuando ella pide «mueve» y propone horarios que no chocan con sus reuniones. El front solo ofrece el enlace de conexión.

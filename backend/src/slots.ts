@@ -4,7 +4,7 @@ import { addDays, dateKey, localParts, parseHHMM, zonedToUtc } from './time.js';
 /** Lunes, miércoles, viernes: martes y jueves quedan descartados (Camila llega tarde, caso 1). */
 export const PREFERRED_DAYS = [1, 3, 5];
 const MIN_LEAD_MS = 60 * 60 * 1000;
-const DURATION_MS = 40 * 60 * 1000;
+export const DEFAULT_SESSION_MIN = 40;
 
 /** Intervalo ocupado del calendario real (ms epoch). */
 export interface Busy {
@@ -12,24 +12,46 @@ export interface Busy {
   end: number;
 }
 
-function overlaps(candidate: Date, taken: Date[]): boolean {
-  return taken.some((t) => Math.abs(t.getTime() - candidate.getTime()) < DURATION_MS);
+export const sessionMs = (user: User) => (user.sessionMin ?? DEFAULT_SESSION_MIN) * 60_000;
+
+function overlaps(candidate: Date, taken: Date[], dur: number): boolean {
+  return taken.some((t) => Math.abs(t.getTime() - candidate.getTime()) < dur);
 }
 
-function isBusy(candidate: Date, busy: Busy[]): boolean {
+function isBusy(candidate: Date, busy: Busy[], dur: number): boolean {
   const s = candidate.getTime();
-  return busy.some((b) => s < b.end && s + DURATION_MS > b.start);
+  return busy.some((b) => s < b.end && s + dur > b.start);
 }
 
-/** Horas de inicio probadas dentro de la ventana (cada 30 min desde la preferida, sin pasarse del fin). */
-function startTimes(user: User): Array<{ hour: number; minute: number }> {
-  const pref = parseHHMM(user.preferredTime);
-  const end = parseHHMM(user.window.end);
-  const out: Array<{ hour: number; minute: number }> = [];
-  for (let m = pref.hour * 60 + pref.minute; m + 40 <= end.hour * 60 + end.minute; m += 30) {
-    out.push({ hour: Math.floor(m / 60), minute: m % 60 });
+const minutesOf = (hhmm: string) => {
+  const p = parseHHMM(hhmm);
+  return p.hour * 60 + p.minute;
+};
+
+/** Límites [desde, hasta] en minutos del día en que debe caber la sesión: ventana ∩ horario del gym. */
+function bounds(user: User): [number, number] {
+  let lo = minutesOf(user.window.start);
+  let hi = minutesOf(user.window.end);
+  if (user.gymHours) {
+    lo = Math.max(lo, minutesOf(user.gymHours.open));
+    hi = Math.min(hi, minutesOf(user.gymHours.close));
   }
-  return out.length ? out : [pref];
+  return [lo, hi];
+}
+
+/**
+ * Horas de inicio probadas: la preferida y cada 30 min hacia adelante, luego el resto de la ventana cada 15 min.
+ * Solo las que caben enteras dentro de la ventana ∩ horario del gym.
+ */
+function startTimes(user: User): Array<{ hour: number; minute: number }> {
+  const [lo, hi] = bounds(user);
+  const dur = sessionMs(user) / 60_000;
+  const pref = minutesOf(user.preferredTime);
+  const fits = (m: number) => m >= lo && m + dur <= hi;
+  const ordered: number[] = [];
+  for (let m = pref; m + dur <= hi; m += 30) if (fits(m)) ordered.push(m);
+  for (let m = lo; m + dur <= hi; m += 15) if (fits(m) && !ordered.includes(m)) ordered.push(m);
+  return ordered.map((m) => ({ hour: Math.floor(m / 60), minute: m % 60 }));
 }
 
 /**
@@ -38,15 +60,17 @@ function startTimes(user: User): Array<{ hour: number; minute: number }> {
  */
 export function nextSlots(user: User, after: Date, count: number, taken: Date[] = [], busy: Busy[] = []): Date[] {
   const times = startTimes(user);
+  const dur = sessionMs(user);
+  const days = user.days?.length ? user.days : PREFERRED_DAYS;
   const start = localParts(after);
   const out: Date[] = [];
   for (let i = 0; i < 28 && out.length < count; i++) {
     const day = addDays(start, i);
-    if (!PREFERRED_DAYS.includes(day.weekday)) continue;
+    if (!days.includes(day.weekday)) continue;
     for (const t of times) {
       const slot = zonedToUtc(day.year, day.month, day.day, t.hour, t.minute);
       if (slot.getTime() < after.getTime() + MIN_LEAD_MS) continue;
-      if (overlaps(slot, taken) || isBusy(slot, busy)) continue;
+      if (overlaps(slot, taken, dur) || isBusy(slot, busy, dur)) continue;
       out.push(slot);
       break;
     }
@@ -58,7 +82,9 @@ export function nextSlots(user: User, after: Date, count: number, taken: Date[] 
  * Re-negociación de ventana (regla anti-snooze): se ofrece algo DISTINTO al slot que
  * no está funcionando — martes 20:30 o sábado 11:00.
  */
-export function renegotiationSlots(after: Date, taken: Date[] = [], busy: Busy[] = []): Date[] {
+export function renegotiationSlots(user: User, after: Date, taken: Date[] = [], busy: Busy[] = []): Date[] {
+  const dur = sessionMs(user);
+  const gym = user.gymHours;
   const start = localParts(after);
   const wants: Array<{ weekday: number; hour: number; minute: number }> = [
     { weekday: 2, hour: 20, minute: 30 },
@@ -70,7 +96,12 @@ export function renegotiationSlots(after: Date, taken: Date[] = [], busy: Busy[]
       const day = addDays(start, i);
       if (day.weekday !== w.weekday) continue;
       const slot = zonedToUtc(day.year, day.month, day.day, w.hour, w.minute);
-      if (slot.getTime() < after.getTime() + MIN_LEAD_MS || overlaps(slot, taken) || isBusy(slot, busy)) continue;
+      if (slot.getTime() < after.getTime() + MIN_LEAD_MS || overlaps(slot, taken, dur) || isBusy(slot, busy, dur)) continue;
+      if (gym) {
+        const p = localParts(slot);
+        const m = p.hour * 60 + p.minute;
+        if (m < minutesOf(gym.open) || m + dur / 60_000 > minutesOf(gym.close)) continue;
+      }
       out.push(slot);
       break;
     }
@@ -143,7 +174,7 @@ export function parseWhen(text: string, now: Date, user: User): Date | null {
   if (!targetDay && clock) {
     for (let i = 0; i < 8; i++) {
       const d = addDays(start, i);
-      if (!PREFERRED_DAYS.includes(d.weekday)) continue;
+      if (!(user.days?.length ? user.days : PREFERRED_DAYS).includes(d.weekday)) continue;
       const cand = zonedToUtc(d.year, d.month, d.day, clock.hour, clock.minute);
       if (cand.getTime() > now.getTime() + MIN_LEAD_MS) return cand;
     }

@@ -33,16 +33,16 @@ export function toneViolations(text: string): string[] {
 }
 
 export const T = {
-  capture: (name: string) =>
-    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son 40 minutos y 3 máquinas que ya conoces.`,
+  capture: (name: string, minutes = 40) =>
+    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son ${minutes} minutos y 3 máquinas que ya conoces.`,
   slotChosen: (label: string, venue: string) => `Listo: ${label}, ${venue}. Te dejo la cita para tu calendario.`,
   askOtherHour: () => 'Dime día y hora, por ejemplo "martes 20:30", y la dejo agendada.',
   otherHourUnclear: () => 'No alcancé a entender la hora. Puedes escribir algo como "miércoles 20:00".',
   weekSkipped: () => 'Sin problema, esta semana descansamos. El domingo te escribo de nuevo.',
   defaultApplied: (label: string, venue: string) =>
     `Dejé agendada tu cita del ${label} en ${venue}, tu horario más habitual. Si no te acomoda, escribe "mueve" y la cambiamos.`,
-  reminder: (time: string) =>
-    `A las ${time} tienes la cita contigo: 40 minutos, 3 máquinas. Si la reunión se alargó, escribe "mueve".`,
+  reminder: (time: string, minutes = 40) =>
+    `A las ${time} tienes la cita contigo: ${minutes} minutos, 3 máquinas. Si la reunión se alargó, escribe "mueve".`,
   moved: (label: string) => `Hecho, la moví al ${label}. Mover no es fallar.`,
   renegotiate: (a: string, b: string) =>
     `Ese horario no te está resultando, y está bien. ¿Probamos con el ${a} o el ${b}?`,

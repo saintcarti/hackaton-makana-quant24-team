@@ -134,6 +134,44 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     return c.json({ user }, 201);
   });
 
+  const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+  const prefsSchema = z
+    .object({
+      gymHours: z.object({ open: hhmm, close: hhmm }).optional(),
+      window: z.object({ start: hhmm, end: hhmm }).optional(),
+      sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
+      perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+      days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+    })
+    .strict();
+
+  app.patch('/api/users/:id/preferences', async (c) => {
+    const prefs = prefsSchema.parse(await c.req.json().catch(() => ({})));
+    const check = (a?: { open?: string; close?: string; start?: string; end?: string }) => {
+      const lo = a?.open ?? a?.start;
+      const hi = a?.close ?? a?.end;
+      if (lo && hi && lo >= hi) throw new DomainError('invalid_range', 'La hora de inicio debe ser anterior a la de término', 400);
+    };
+    check(prefs.gymHours);
+    check(prefs.window);
+    const user = await engine.run((x) => engine.setPreferences(x, c.req.param('id'), prefs));
+    return c.json({ user });
+  });
+
+  app.post('/api/users/:id/busy', async (c) => {
+    const body = z
+      .object({
+        weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        intervals: z.array(z.object({ start: z.string().datetime({ offset: true }), end: z.string().datetime({ offset: true }) })).max(300),
+      })
+      .parse(await c.req.json().catch(() => ({})));
+    const intervals = body.intervals
+      .map((i) => [Date.parse(i.start), Date.parse(i.end)] as [number, number])
+      .filter(([s, e]) => e > s);
+    await engine.run((x) => engine.setBusy(x, c.req.param('id'), body.weekOf, intervals));
+    return c.json({ ok: true, count: intervals.length });
+  });
+
   app.get('/api/users', async (c) => c.json({ users: await engine.read((x) => Object.values(x.db.users)) }));
 
   app.get('/api/users/:id', async (c) =>

@@ -9,7 +9,7 @@ import SixWeeks from './components/SixWeeks';
 import WeekCalendar, { type GoogleState, type Suggestion } from './components/WeekCalendar';
 import { useMessages } from './hooks/useMessages';
 import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
-import type { AppointmentView, CalendarWeek, Summary, User } from './lib/api-types';
+import type { AppointmentView, CalendarWeek, GoogleStatus, Summary, User } from './lib/api-types';
 import { allDaySegments, toSegments } from './lib/calendar';
 import { fitWeek, pickSuggestions, type MovedFrom, type TakenInterval } from './lib/fit';
 import { addDaysISO, santiagoParts, santiagoToDate } from './lib/format';
@@ -101,6 +101,9 @@ export default function App() {
   const [gState, setGState] = useState<GoogleState>('off');
   const [gNote, setGNote] = useState<string | null>(null);
   const [sampleOn, setSampleOn] = useState(readSampleFlag);
+  // Google conectado en el servidor (OAuth del backend). Si lo está, su calendario manda sobre el de ejemplo.
+  const [srvGoogle, setSrvGoogle] = useState<GoogleStatus | null>(null);
+  const srvConnected = !!srvGoogle?.connected;
 
   const [prefsVersion, setPrefsVersion] = useState(0);
   const [prefsNote, setPrefsNote] = useState<string | null>(null);
@@ -255,6 +258,68 @@ export default function App() {
 
   const isDemoUser = userId !== null && userId === demoUserId;
 
+  // Estado de la conexión de Google en el servidor; se vuelve a consultar al volver a la pestaña (tras autorizar en Google).
+  useEffect(() => {
+    if (!userId || !isDemoUser) {
+      setSrvGoogle(null);
+      return;
+    }
+    let alive = true;
+    const load = () =>
+      api
+        .googleStatus(userId)
+        .then((s) => alive && setSrvGoogle(s))
+        .catch(() => alive && setSrvGoogle(null));
+    load();
+    window.addEventListener('focus', load);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', load);
+    };
+  }, [userId, isDemoUser, refreshKey]);
+
+  // Calendario conectado en el servidor: sus eventos se pintan en la semana; el agente ya los esquiva por su cuenta.
+  useEffect(() => {
+    if (google || !srvConnected || !cal || !userId || !isDemoUser) return;
+    let alive = true;
+    setGState('loading');
+    api
+      .googleEvents(userId)
+      .then(({ events: raw }) => {
+        if (!alive) return;
+        const evs: CalendarEvent[] = raw
+          .filter((e) => !e.isLaCita)
+          .map((e) => {
+            const allDay = !e.start.includes('T');
+            return {
+              id: e.id,
+              title: e.title || 'Ocupado',
+              start: new Date(allDay ? `${e.start}T00:00:00` : e.start),
+              end: new Date(allDay ? `${e.end}T00:00:00` : e.end),
+              allDay,
+              allDayStart: allDay ? e.start : undefined,
+              allDayEnd: allDay ? e.end : undefined,
+            };
+          });
+        setEvents(evs);
+        setGState('on');
+        setGNote(evs.length ? null : 'Sin eventos en Google estas semanas');
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setEvents([]);
+        setGState('error');
+        setGNote(
+          e instanceof ApiError && (e.status === 401 || e.status === 403)
+            ? 'Para ver el calendario conectado pon el token admin en el panel de demo.'
+            : 'No pudimos leer el calendario conectado.',
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, [google, srvConnected, cal?.weekOf, userId, isDemoUser, refreshKey]);
+
   // Calendario de Google de la semana visible, leído en el navegador. Solo aplica a la usuaria demo (la de la sesión).
   useEffect(() => {
     if (!google || !cal || !userId || !isDemoUser) return;
@@ -283,9 +348,9 @@ export default function App() {
   }, [google, cal?.weekOf, userId, isDemoUser]);
 
   // Plan B sin Google ni red (R6): la semana de ejemplo de Camila sintética, rotulada como inventada.
-  const sampleActive = sampleOn && !google && isDemoUser;
+  const sampleActive = sampleOn && !google && !srvConnected && isDemoUser;
   useEffect(() => {
-    if (google || !cal || !userId || !isDemoUser) return;
+    if (google || srvConnected || !cal || !userId || !isDemoUser) return;
     if (!sampleOn) {
       setEvents([]);
       return;
@@ -293,7 +358,7 @@ export default function App() {
     const evs = sampleWorkWeek(cal.weekOf);
     setEvents(evs);
     api.syncBusy(userId, cal.weekOf, busyIntervals(evs)).catch(() => undefined);
-  }, [google, sampleOn, cal?.weekOf, userId, isDemoUser]);
+  }, [google, srvConnected, sampleOn, cal?.weekOf, userId, isDemoUser]);
 
   function toggleSample() {
     setSampleOn((on) => {
@@ -570,7 +635,8 @@ export default function App() {
               now={now}
               simulated={simulated}
               sampleOn={sampleOn}
-              googleConnected={!!google}
+              googleConnected={!!google || srvConnected}
+              googleConnectUrl={srvGoogle && !srvGoogle.connected ? srvGoogle.connectUrl : null}
               onToggleSample={toggleSample}
               onDone={(opts) => {
                 if (opts?.resetChat) afterReset();

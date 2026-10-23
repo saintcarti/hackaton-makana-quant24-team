@@ -7,8 +7,10 @@ export type ApptStatus = 'proposed' | 'confirmed' | 'reminded' | 'done' | 'lapse
 
 export interface Button {
   label: string;
-  /** Devuélvelo tal cual en POST /api/users/:id/messages { action, label }. */
+  /** Devuélvelo tal cual en POST /api/users/:id/messages { action, label }. Vacío si es un botón-enlace. */
   action: string;
+  /** Si existe, es un botón-enlace (p. ej. "Conectar mi calendario"): ábrelo en una pestaña nueva y NO envíes `action`. */
+  url?: string;
 }
 
 export interface Attachment {
@@ -17,6 +19,8 @@ export interface Attachment {
   filename: string;
   /** Ruta relativa a la base de la API, p. ej. "/api/appointments/a_1234/ics". */
   url: string;
+  /** Enlace "Agregar a Google Calendar" prellenado. Muéstralo como botón junto al .ics. */
+  gcalUrl: string;
 }
 
 export interface Message {
@@ -39,6 +43,14 @@ export interface User {
   plannedVisitsPerMonth: number;
   window: { start: string; end: string };
   preferredTime: string;
+  /** Horario del gym ("HH:MM"). Si falta, solo manda la ventana. Se cambia con PATCH /users/:id/preferences. */
+  gymHours?: { open: string; close: string };
+  /** Duración de la sesión en minutos (30 | 40 | 50 | 60). Por defecto 40. */
+  sessionMin?: number;
+  /** Veces por semana que quiere ir (1 | 2 | 3). Hoy el flujo dominical agenda una; el resto es fase 2. */
+  perWeek?: number;
+  /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
+  days?: number[];
   channel: { type: 'sim' | 'telegram'; chatId?: number };
   synthetic: boolean;
   consecutiveMoves: number;
@@ -139,3 +151,12 @@ export interface Meta {
 }
 
 export type ClockPreset = 'sunday-20' | 'sunday-2330' | 'monday-1830' | 'monday-2000';
+
+export interface GoogleStatus {
+  /** El backend tiene credenciales de Google configuradas. */
+  configured: boolean;
+  /** La usuaria ya conectó su Google Calendar. */
+  connected: boolean;
+  /** Enlace para iniciar la conexión (abrir en pestaña nueva). Null si no está configurado. */
+  connectUrl: string | null;
+}

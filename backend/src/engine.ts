@@ -222,7 +222,31 @@ export class Engine {
   }
 
   private busyFor(c: Ctx, userId: string): Busy[] {
-    return c.busy.get(userId) ?? [];
+    const manual = Object.values(c.db.busy?.[userId] ?? {}).flat().map(([start, end]) => ({ start, end }));
+    return [...(c.busy.get(userId) ?? []), ...manual];
+  }
+
+  /** Reemplaza los bloques ocupados que informa el front para una semana (idempotente; sin títulos: R2). */
+  setBusy(c: Ctx, userId: string, weekOf: string, intervals: Array<[number, number]>) {
+    this.user(c, userId);
+    c.db.busy ??= {};
+    const byWeek = (c.db.busy[userId] ??= {});
+    if (intervals.length) byWeek[weekOf] = intervals;
+    else delete byWeek[weekOf];
+  }
+
+  /** Reglas de la sesión (merge). Las reglas nuevas aplican a las próximas propuestas, no a citas ya agendadas. */
+  setPreferences(c: Ctx, userId: string, prefs: Partial<Pick<User, 'gymHours' | 'sessionMin' | 'perWeek' | 'days'>> & { window?: User['window'] }): User {
+    const user = this.user(c, userId);
+    if (prefs.window) user.window = prefs.window;
+    if (prefs.gymHours) user.gymHours = prefs.gymHours;
+    if (prefs.sessionMin !== undefined) user.sessionMin = prefs.sessionMin;
+    if (prefs.perWeek !== undefined) user.perWeek = prefs.perWeek;
+    if (prefs.days) user.days = [...new Set(prefs.days)].sort();
+    // La hora preferida tiene que seguir cayendo dentro de la ventana.
+    const [ps, pe] = [user.window.start, user.window.end];
+    if (user.preferredTime < ps || user.preferredTime >= pe) user.preferredTime = ps;
+    return user;
   }
 
   /** Botón-enlace para conectar el calendario (solo si Google está configurado y aún no está conectado). */
@@ -330,7 +354,7 @@ export class Engine {
       id: shortId('a'),
       userId,
       startsAt: null,
-      durationMin: 40,
+      durationMin: user.sessionMin ?? 40,
       venue: this.config.venue,
       content: '3 máquinas que ya conoces',
       status: 'proposed',
@@ -351,7 +375,7 @@ export class Engine {
     const connect = this.connectButton(c, user);
     if (connect) buttons.push(connect);
     this.event(c, userId, 'capture_sent', appt.id);
-    this.emit(c, userId, { text: T.capture(user.name), buttons });
+    this.emit(c, userId, { text: T.capture(user.name, user.sessionMin ?? 40), buttons });
     return appt;
   }
 
@@ -425,7 +449,7 @@ export class Engine {
     appt.status = 'reminded';
     this.event(c, userId, 'reminder_sent', appt.id);
     this.emit(c, userId, {
-      text: T.reminder(formatTime(new Date(appt.startsAt))),
+      text: T.reminder(formatTime(new Date(appt.startsAt)), appt.durationMin),
       buttons: [
         { label: T.btn.move, action: 'move' },
         { label: T.btn.done, action: 'done' },
@@ -447,7 +471,7 @@ export class Engine {
 
     // Regla anti-snooze: tras 2 MUEVEs seguidos sin visita no se repite el mismo slot.
     if (user.consecutiveMoves >= 2) {
-      const opts = renegotiationSlots(c.now, this.taken(c, userId, appt.id), this.busyFor(c, userId));
+      const opts = renegotiationSlots(user, c.now, this.taken(c, userId, appt.id), this.busyFor(c, userId));
       if (opts.length >= 2) {
         user.pending = { kind: 'renegotiate', apptId: appt.id };
         this.event(c, userId, 'renegotiation_opened', appt.id);

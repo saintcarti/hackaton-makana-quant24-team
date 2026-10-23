@@ -1,5 +1,7 @@
 # Pedidos del frontend al backend
 
+> **Estado (backend en `main`):** §1 y §3 implementados (`POST /users/:id/busy`, `PATCH /users/:id/preferences`; ver `docs/INTEGRACION-FRONTEND.md`). §2 era un error del ejemplo del doc, ya corregido. Además el backend conecta Google por OAuth en el servidor (`GET /users/:id/google`, `connectUrl`): la web lo usa y deja `VITE_GOOGLE_CLIENT_ID` vacío para no pedirle a Camila dos autorizaciones.
+
 Para @saintcarti. Según `docs/DIVISION-DE-TRABAJO.md`, lo que el front necesita y la API no da se pide acá con su caso de uso. Ninguno se simula en el front.
 
 ## 1. Disponibilidad desde Google Calendar (para que el agente busque el hueco real)
