@@ -198,11 +198,12 @@ export async function createDemoEvent(token: string, summary: string, start: Dat
   return r.json.id as string;
 }
 
-export async function clearDemoEvents(token: string): Promise<number> {
+/** Borra los eventos marcados con la propiedad privada `prop` (laCitaDemo = reuniones inventadas; laCita = citas que creó el agente). */
+export async function clearMarkedEvents(token: string, prop: 'laCitaDemo' | 'laCita'): Promise<number> {
   let deleted = 0;
   let pageToken: string | undefined;
   do {
-    const q = new URLSearchParams({ privateExtendedProperty: 'laCitaDemo=1', maxResults: '100', showDeleted: 'false' });
+    const q = new URLSearchParams({ privateExtendedProperty: `${prop}=1`, maxResults: '100', showDeleted: 'false' });
     if (pageToken) q.set('pageToken', pageToken);
     const r = await api(token, 'GET', `/calendars/primary/events?${q.toString()}`);
     if (r.status !== 200) throw new Error(`Calendar list ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
@@ -214,6 +215,8 @@ export async function clearDemoEvents(token: string): Promise<number> {
   } while (pageToken);
   return deleted;
 }
+
+export const clearDemoEvents = (token: string) => clearMarkedEvents(token, 'laCitaDemo');
 
 /** Eventos próximos del calendario principal (para verificar/mostrar en el panel de demo). */
 export async function listEvents(token: string, fromMs: number, toMs: number) {

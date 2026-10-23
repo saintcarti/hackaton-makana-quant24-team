@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { api } from '../lib/api';
+import type { GoogleStatus } from '../lib/api-types';
 import { googleClientId, preloadGoogle } from '../lib/google';
 
 interface Props {
@@ -12,6 +14,21 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(preloadGoogle, []);
+
+  // Google conectado en el servidor (OAuth del backend) para la Camila sintética: es la vía principal.
+  const [srv, setSrv] = useState<GoogleStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .meta()
+      .then((m) => api.googleStatus(m.demoUserId))
+      .then((s) => alive && setSrv(s))
+      .catch(() => alive && setSrv(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const serverGoogle = !!srv?.configured;
 
   async function google() {
     setBusy(true);
@@ -76,8 +93,20 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
           <button className={`btn${googleClientId ? '' : ' btn-primary'}`} onClick={onDemo}>
             Entrar como Camila sintética
           </button>
+          {srv?.configured && srv.connectUrl && !srv.connected && (
+            <a className="btn" href={srv.connectUrl} target="_blank" rel="noreferrer">
+              Conectar Google Calendar
+            </a>
+          )}
         </div>
-        {!googleClientId && (
+        {serverGoogle && (
+          <div className="notice">
+            {srv?.connected
+              ? 'Google Calendar conectado: Camila sintética usa su calendario real.'
+              : 'Google está listo. «Conectar Google Calendar» abre Google en otra pestaña: autoriza con la cuenta sintética de Camila y vuelve aquí.'}
+          </div>
+        )}
+        {!googleClientId && !serverGoogle && (
           <div className="notice">
             Google todavía no está configurado en este despliegue. La demo con Camila sintética funciona igual.
           </div>
@@ -88,8 +117,8 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
           </div>
         )}
         <p className="fineprint">
-          Solo pedimos permiso de lectura. Tu calendario se lee en este navegador; al agente solo le pasamos tus
-          horas ocupadas, sin títulos, para que no te proponga horarios que choquen. Para el demo usa una cuenta de
+          Solo pedimos permiso de lectura. El agente lee solo tus horas ocupadas, sin títulos, para que no te proponga
+          horarios que choquen. Para el demo usa una cuenta de
           Google sintética.
           {telegramBot && (
             <>
