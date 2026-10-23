@@ -14,6 +14,14 @@ export interface User {
   /** Hora preferida dentro de la ventana, "HH:MM". */
   preferredTime: string;
   channel: { type: ChannelKind; chatId?: number };
+  /** Horario del gym, "HH:MM". Si falta, solo manda la ventana. */
+  gymHours?: { open: string; close: string };
+  /** Duración de la sesión en minutos (30 | 40 | 50 | 60). Por defecto 40. */
+  sessionMin?: number;
+  /** Veces por semana que quiere ir (1 | 2 | 3). Hoy el flujo dominical agenda una; el resto es fase 2. */
+  perWeek?: number;
+  /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
+  days?: number[];
   synthetic: boolean;
   /** MUEVEs seguidos sin visita (regla anti-snooze). */
   consecutiveMoves: number;
@@ -55,6 +63,8 @@ export interface Appointment {
   /** Opciones ofrecidas en la captura (ISO). */
   options: string[];
   moves: Move[];
+  /** Id del evento en Google Calendar (si hay calendario conectado). */
+  eventId?: string;
   /** Lunes local de la semana ("YYYY-MM-DD"). */
   weekOf: string;
   createdAt: string;
@@ -63,8 +73,10 @@ export interface Appointment {
 
 export interface Button {
   label: string;
-  /** Valor que el front devuelve a POST /users/:id/messages {action}. */
+  /** Valor que el front devuelve a POST /users/:id/messages {action}. Vacío si el botón es un enlace. */
   action: string;
+  /** Si existe, es un botón-enlace: ábrelo en una pestaña nueva en vez de enviar `action`. */
+  url?: string;
 }
 
 export interface Attachment {
@@ -72,6 +84,8 @@ export interface Attachment {
   apptId: string;
   filename: string;
   url: string;
+  /** Enlace "Agregar a Google Calendar" (sin OAuth): abre el evento prellenado en Google Calendar. */
+  gcalUrl: string;
 }
 
 export interface OutMessage {
@@ -109,12 +123,27 @@ export interface EventRec {
   data?: Record<string, unknown>;
 }
 
+/** Conexión OAuth con el Google Calendar de una usuaria. NUNCA se expone por la API. */
+export interface GoogleLink {
+  refreshToken: string;
+  accessToken?: string;
+  /** ms epoch */
+  expiresAt?: number;
+  connectedAt: string;
+  /** Caché de bloques ocupados (ms epoch) para no consultar en cada mensaje. */
+  busyCache?: { at: number; intervals: Array<[number, number]> };
+}
+
 export interface DB {
   users: Record<string, User>;
   appointments: Record<string, Appointment>;
   messages: Message[];
   events: EventRec[];
   seq: number;
+  /** Conexiones de Google Calendar por usuaria (secretos: no exponer). */
+  google?: Record<string, GoogleLink>;
+  /** Bloques ocupados informados por el front (solo inicio y fin, ms epoch), por usuaria y semana. */
+  busy?: Record<string, Record<string, Array<[number, number]>>>;
   /** Offset del reloj de demo en ms (0 = reloj real). */
   clockOffsetMs: number;
 }
@@ -125,5 +154,6 @@ export const emptyDB = (): DB => ({
   messages: [],
   events: [],
   seq: 0,
+  google: {},
   clockOffsetMs: 0,
 });

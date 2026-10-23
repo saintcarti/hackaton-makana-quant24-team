@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "la-cita-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" },
+  "durable_objects": {
+    "bindings": [{ "name": "STATE", "class_name": "LaCitaState" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LaCitaState"] }],
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+  "vars": {
+    "GYM_VENUE": "tu gym de Ñuñoa",
+    "CF_AI_MODEL": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+    "CORS_ORIGIN": "",
+    "PUBLIC_URL": "https://la-cita-api.x-liberona.workers.dev"
+  }
+}

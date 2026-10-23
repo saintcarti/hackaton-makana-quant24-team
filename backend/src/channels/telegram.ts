@@ -23,10 +23,11 @@ export class TelegramChannel {
 
   /** Botones en filas: los de horario de a 2, el resto de a 1. callback_data <= 64 bytes. */
   static keyboard(buttons: Button[]) {
-    const rows: Array<Array<{ text: string; callback_data: string }>> = [];
-    let row: Array<{ text: string; callback_data: string }> = [];
+    type Btn = { text: string; callback_data?: string; url?: string };
+    const rows: Btn[][] = [];
+    let row: Btn[] = [];
     for (const b of buttons) {
-      row.push({ text: b.label, callback_data: b.action.slice(0, 64) });
+      row.push(b.url ? { text: b.label, url: b.url } : { text: b.label, callback_data: b.action.slice(0, 64) });
       if (row.length === 2 || !b.action.startsWith('slot:')) {
         rows.push(row);
         row = [];
@@ -37,10 +38,14 @@ export class TelegramChannel {
   }
 
   async send(chatId: number, msg: Message, icsContent?: string) {
+    const rows = msg.buttons?.length ? TelegramChannel.keyboard(msg.buttons).inline_keyboard : [];
+    // Botón de URL: abre Google Calendar con el evento prellenado (no requiere OAuth).
+    const inline: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [...rows];
+    if (msg.attachment?.gcalUrl) inline.push([{ text: '📅 Agregar a Google Calendar', url: msg.attachment.gcalUrl }]);
     await this.call('sendMessage', {
       chat_id: chatId,
       text: msg.text,
-      ...(msg.buttons?.length ? { reply_markup: TelegramChannel.keyboard(msg.buttons) } : {}),
+      ...(inline.length ? { reply_markup: { inline_keyboard: inline } } : {}),
     });
     if (msg.attachment && icsContent) {
       const form = new FormData();
@@ -48,7 +53,7 @@ export class TelegramChannel {
       form.set('document', new Blob([icsContent], { type: 'text/calendar' }), msg.attachment.filename);
       form.set('caption', 'Agrégala a tu calendario con un toque.');
       const res = await fetch(this.url('sendDocument'), { method: 'POST', body: form });
-      if (!res.ok) throw new Error(`Telegram sendDocument ${res.status}`);
+      if (!res.ok) throw new Error(`Telegram sendDocument ${res.status}: ${(await res.text()).slice(0, 200)}`);
     }
   }
 

@@ -13,7 +13,14 @@ Hackatón Señales · Caso 1 (Camila) · producto «La Cita». Evento: viernes 2
 
 Nadie edita la carpeta del otro. El único punto de contacto es el contrato HTTP descrito en [`INTEGRACION-FRONTEND.md`](./INTEGRACION-FRONTEND.md) y en [`api-types.ts`](./api-types.ts). Si el frontend necesita algo que la API no da, se pide al backend con un issue o un mensaje: se agrega al contrato y a `api-types.ts`, no se simula con datos inventados en el front.
 
-Dos mitades que no se pisan evitan conflictos de merge en un evento de 24 horas. Cada quien trabaja en su rama (`backend/*` y `frontend/*`) y mergea a `main` con fast-forward cuando su módulo pasa su propio chequeo.
+Dos mitades que no se pisan evitan conflictos de merge en un evento de 24 horas. ## Ramas
+
+| Rama | Quién | Para qué |
+|---|---|---|
+| `main` | Backend | Integración y lo que se despliega. El backend trabaja aquí (y en ramas cortas `backend/*` si hace falta) |
+| `frontend/investigacion` | Benjamin y sus agentes | Todo el frontend vive en esta rama, en la carpeta `frontend/` |
+
+Flujo: Benjamin trabaja y hace push a `frontend/investigacion`. Para traer los cambios del backend o de los docs: `git fetch && git merge origin/main` dentro de esa rama. Cuando una pantalla está lista, se abre un pull request `frontend/investigacion` → `main` (o se mergea a `main` en los checkpoints de las 12:00 y 18:00, y antes del corte del sábado 13:30). Como cada uno edita carpetas distintas, los merges no deberían tener conflictos.
 
 ## Qué entrega el backend (ya implementado)
 
@@ -48,7 +55,7 @@ Alineados con `build-plan-2dias.md` de la fase de investigación.
 | Hora | Backend | Frontend |
 |---|---|---|
 | Vie 12:00 | API en marcha con el reloj simulable y Camila sintética; Telegram con `setWebhook` | Chat conectado a `POST /messages` con botones funcionando |
-| Vie 18:00 | MUEVE y `.ics` verificados de punta a punta, deploy en Vercel | Vista admin leyendo `/summary` y `/appointments` |
+| Vie 18:00 | MUEVE y `.ics` verificados de punta a punta, deploy en Cloudflare Workers | Vista admin leyendo `/summary` y `/appointments` |
 | Vie 21:00 | Ensayo #1 | Ensayo #1 |
 | Sáb 10:30 | Plan B sin red listo | Plan B sin red listo (obligatorio, regla R6) |
 | Sáb 13:30 | **Corte**: se congela todo | **Corte**: se congela todo |

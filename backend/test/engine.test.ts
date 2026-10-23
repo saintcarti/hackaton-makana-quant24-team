@@ -62,6 +62,8 @@ describe('flujo La Cita', () => {
       engine.handleInbound(c, 'u1', { action: `slot:${capture.id}:${capture.options[0]}` }),
     );
     expect(replies[0]!.attachment?.kind).toBe('ics');
+    expect(replies[0]!.attachment?.gcalUrl).toContain('calendar.google.com/calendar/render?action=TEMPLATE');
+    expect(replies[0]!.attachment?.gcalUrl).toContain('dates=20261026T221500Z%2F20261026T225500Z');
 
     // Lunes 18:30 -> tick manda un único recordatorio
     await clock(zonedToUtc(2026, 10, 26, 18, 30));
@@ -184,5 +186,49 @@ describe('Camila sintética', () => {
   it('las métricas excluyen el seed', () => {
     const m = metrics(freshDB(SUNDAY_20));
     expect(m.h1_captureToAppointment.sent).toBe(0);
+  });
+});
+
+import { DEFAULT_AI_MODEL, WorkersAiParser, bindingRunner, restRunner } from '../src/intent.js';
+import { vi } from 'vitest';
+
+describe('Cloudflare Workers AI', () => {
+  it('REST: clasifica, no usa reasoning_content y tolera fallas', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch');
+    const ok = (message: object) =>
+      new Response(JSON.stringify({ success: true, result: { choices: [{ message }] } }));
+    spy.mockResolvedValueOnce(ok({ content: ' Move.', reasoning_content: 'quizás done' }));
+    const p = new WorkersAiParser(restRunner('acc', 'tok'));
+    expect(await p.classify('no llego, junta eterna')).toBe('move');
+    expect(String(spy.mock.calls[0]![0])).toContain(`/accounts/acc/ai/run/${DEFAULT_AI_MODEL}`);
+    expect(JSON.parse(String((spy.mock.calls[0]![1] as RequestInit).body)).chat_template_kwargs).toEqual({ thinking: false });
+
+    // content vacío (el modelo se quedó pensando): null, nunca se usa el razonamiento
+    spy.mockResolvedValueOnce(ok({ content: '', reasoning_content: 'la respuesta es done' }));
+    expect(await p.classify('x')).toBeNull();
+    spy.mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    expect(await p.classify('x')).toBeNull();
+    spy.mockRejectedValueOnce(new Error('red'));
+    expect(await p.classify('x')).toBeNull();
+    spy.mockRestore();
+  });
+
+  it('binding: usa env.AI.run', async () => {
+    const run = vi.fn().mockResolvedValue({ response: 'pain' });
+    const p = new WorkersAiParser(bindingRunner({ run }), '@cf/test/model');
+    expect(await p.classify('me duele')).toBe('pain');
+    expect(run).toHaveBeenCalledWith('@cf/test/model', expect.objectContaining({ temperature: 0 }));
+  });
+});
+
+import { toIntent } from '../src/intent.js';
+
+describe('toIntent con modelos que razonan en voz alta', () => {
+  it('ignora <think> y toma la conclusión', () => {
+    expect(toIntent('<think>puede ser done o move... el usuario dice que no puede</think>move')).toBe('move');
+    expect(toIntent('Razonamiento: menciona dolor, no es move. Respuesta: pain')).toBe('pain');
+    expect(toIntent('<think>sin cerrar, quizás done')).toBeNull();
+    expect(toIntent('skip_week')).toBe('skip_week');
+    expect(toIntent('')).toBeNull();
   });
 });

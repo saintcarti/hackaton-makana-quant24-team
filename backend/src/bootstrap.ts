@@ -1,15 +1,24 @@
 import { createApp } from './app.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Engine } from './engine.js';
-import { parserFromEnv } from './intent.js';
-import { storeFromEnv } from './store.js';
+import { googleConfigFromEnv } from './google.js';
+import { AiRunner, WorkersAiParser, aiOptionsFromEnv, restRunner } from './intent.js';
+import { Store, storeFromEnv } from './store.js';
 
-/** Arma motor + app a partir de variables de entorno (ver .env.example). */
-export function createEngineFromEnv(env: NodeJS.ProcessEnv = process.env) {
+export type EnvVars = Record<string, string | undefined>;
+
+/**
+ * Arma motor + app. Agnóstico del host: en Workers recibe el store del Durable Object y el
+ * runner del binding `AI`; en Node (local / plan B sin red) usa memoria o Upstash y REST.
+ */
+export function createEngine(opts: { env: EnvVars; store: Store; ai?: AiRunner | null }) {
+  const { env } = opts;
+  const { model, opts: aiOpts } = aiOptionsFromEnv(env);
   const engine = new Engine({
-    store: storeFromEnv(env),
+    store: opts.store,
     telegram: env.TELEGRAM_BOT_TOKEN ? new TelegramChannel(env.TELEGRAM_BOT_TOKEN) : null,
-    parser: parserFromEnv(env),
+    parser: opts.ai ? new WorkersAiParser(opts.ai, model, aiOpts) : null,
+    google: googleConfigFromEnv(env),
     config: env.GYM_VENUE ? { venue: env.GYM_VENUE } : {},
   });
   const app = createApp(engine, {
@@ -18,4 +27,13 @@ export function createEngineFromEnv(env: NodeJS.ProcessEnv = process.env) {
     corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map((s) => s.trim()) : '*',
   });
   return { engine, app };
+}
+
+/** Node: store en memoria/Upstash y Workers AI por REST (si hay credenciales). */
+export function createEngineFromEnv(env: EnvVars = process.env) {
+  const ai =
+    env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN
+      ? restRunner(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_API_TOKEN)
+      : null;
+  return createEngine({ env, store: storeFromEnv(env), ai });
 }

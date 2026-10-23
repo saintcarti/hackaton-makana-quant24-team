@@ -33,3 +33,18 @@ export function buildIcs(appt: Appointment, user: User, now: Date = new Date()):
   ];
   return lines.join('\r\n') + '\r\n';
 }
+
+/** URL de plantilla de Google Calendar: un toque y el evento queda prellenado en su calendario real. */
+export function googleCalendarUrl(appt: Appointment, user: User): string {
+  if (!appt.startsAt) throw new Error('La cita aún no tiene hora');
+  const start = new Date(appt.startsAt);
+  const end = new Date(start.getTime() + appt.durationMin * 60000);
+  const q = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: 'La Cita contigo',
+    dates: `${fmt(start)}/${fmt(end)}`,
+    details: `${appt.durationMin} min · ${appt.content}. Si se alarga la reunión, la movemos sin drama.`,
+    location: `${appt.venue} (${user.gym})`,
+  });
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
+}

@@ -3,6 +3,7 @@ import type {
   AppointmentView,
   CalendarWeek,
   ClockPreset,
+  GoogleStatus,
   Message,
   MessagesPost,
   Meta,
@@ -138,6 +139,16 @@ export interface BusyInterval {
   end: string;
 }
 
+/** Evento del calendario conectado en el servidor (GET /users/:id/google/events). */
+export interface ServerEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  isLaCita: boolean;
+  isDemoMeeting: boolean;
+}
+
 export const api = {
   meta: () => req<Meta>('GET', '/meta'),
   users: () => req<{ users: User[] }>('GET', '/users'),
@@ -161,6 +172,10 @@ export const api = {
   reset: () => req<{ demoUserId: string; now: string }>('POST', '/demo/reset', {}),
   clock: (body: { preset: ClockPreset } | { advanceMinutes: number } | { reset: true } | { now: string }) =>
     req<{ now: string; simulated: boolean }>('POST', '/demo/clock', body),
+  // Google Calendar conectado en el servidor (OAuth del backend): el token nunca llega al navegador.
+  googleStatus: (userId: string) => req<GoogleStatus>('GET', `/users/${encodeURIComponent(userId)}/google`),
+  googleEvents: (userId: string) =>
+    req<{ events: ServerEvent[] }>('GET', `/users/${encodeURIComponent(userId)}/google/events`),
   tick: () => req<unknown>('POST', '/jobs/tick', {}),
   // Pedido al backend (frontend/PEDIDOS-BACKEND.md §1): mientras no exista, el 404 se ignora.
   // Solo viajan inicio y fin de cada evento ocupado, nunca títulos (R2).

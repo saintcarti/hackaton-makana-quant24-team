@@ -33,16 +33,16 @@ export function toneViolations(text: string): string[] {
 }
 
 export const T = {
-  capture: (name: string) =>
-    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son 40 minutos y 3 máquinas que ya conoces.`,
+  capture: (name: string, minutes = 40) =>
+    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son ${minutes} minutos y 3 máquinas que ya conoces.`,
   slotChosen: (label: string, venue: string) => `Listo: ${label}, ${venue}. Te dejo la cita para tu calendario.`,
   askOtherHour: () => 'Dime día y hora, por ejemplo "martes 20:30", y la dejo agendada.',
   otherHourUnclear: () => 'No alcancé a entender la hora. Puedes escribir algo como "miércoles 20:00".',
   weekSkipped: () => 'Sin problema, esta semana descansamos. El domingo te escribo de nuevo.',
   defaultApplied: (label: string, venue: string) =>
     `Dejé agendada tu cita del ${label} en ${venue}, tu horario más habitual. Si no te acomoda, escribe "mueve" y la cambiamos.`,
-  reminder: (time: string) =>
-    `A las ${time} tienes la cita contigo: 40 minutos, 3 máquinas. Si la reunión se alargó, escribe "mueve".`,
+  reminder: (time: string, minutes = 40) =>
+    `A las ${time} tienes la cita contigo: ${minutes} minutos, 3 máquinas. Si la reunión se alargó, escribe "mueve".`,
   moved: (label: string) => `Hecho, la moví al ${label}. Mover no es fallar.`,
   renegotiate: (a: string, b: string) =>
     `Ese horario no te está resultando, y está bien. ¿Probamos con el ${a} o el ${b}?`,
@@ -54,6 +54,10 @@ export const T = {
   noAppointment: () => 'Todavía no tienes una cita agendada esta semana. ¿Te propongo horarios?',
   fallback: () => 'Te ayudo con una sola cosa: tu cita. Puedes decirme "mueve", "listo" o una hora, por ejemplo "miércoles 20:00".',
   start: () => 'Hola. Soy La Cita: te ayudo a dejar agendada tu hora de entrenar y a moverla cuando la pega se alarga.',
+  connect: () => 'Conecta tu Google Calendar y dejo la cita directo en tu calendario, la muevo cuando me avises y busco horarios que no choquen con tus reuniones.',
+  calendarConnected: () => 'Listo, quedó conectado tu Google Calendar. Desde ahora agendo y muevo tus citas ahí, y propongo horas que no choquen con tus reuniones.',
+  alreadyConnected: () => 'Tu Google Calendar ya está conectado.',
+  calendarUnavailable: () => 'Por ahora no puedo conectar tu calendario. Igual te dejo cada cita con el botón para agregarla.',
   proposeOffer: () => 'Te propongo horarios para esta semana.',
   btn: {
     otherHour: 'Otra hora',

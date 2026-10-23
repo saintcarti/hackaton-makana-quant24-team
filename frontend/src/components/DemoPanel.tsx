@@ -27,6 +27,8 @@ interface Props {
   simulated: boolean;
   sampleOn: boolean;
   googleConnected: boolean;
+  /** Enlace para conectar el Google Calendar en el servidor (null si ya está conectado o no hay credenciales). */
+  googleConnectUrl?: string | null;
   onToggleSample: () => void;
   onDone: (opts?: { resetChat?: boolean; followClock?: boolean }) => void;
   onError: (msg: string) => void;
@@ -52,6 +54,7 @@ export default function DemoPanel({
   simulated,
   sampleOn,
   googleConnected,
+  googleConnectUrl,
   onToggleSample,
   onDone,
   onError,
@@ -211,6 +214,11 @@ export default function DemoPanel({
                 ? 'Google está conectado: manda su calendario.'
                 : 'Semana laboral inventada de Camila, sin Google ni red (plan B, R6).'}
             </span>
+            {googleConnectUrl && (
+              <a className="btn btn-sm" href={googleConnectUrl} target="_blank" rel="noreferrer">
+                Conectar Google Calendar
+              </a>
+            )}
             <span style={{ flex: 1 }} />
             <button className="btn btn-sm btn-quiet" onClick={downloadSampleIcs}>
               Bajar .ics para la cuenta de Google sintética

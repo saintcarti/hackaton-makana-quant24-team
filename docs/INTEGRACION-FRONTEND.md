@@ -64,8 +64,8 @@ const { replies, user, now } = await res.json() as MessagesPost;
 }
 ```
 
-- `buttons` puede faltar. Pinta cada botón con su `label`; al tocarlo, envía su `action` sin modificarlo.
-- `attachment` (`kind: "ics"`) aparece cuando se agenda o mueve una cita. Muestra un botón «Agregar a mi calendario» que abra `API + attachment.url`; el navegador descarga el `.ics`.
+- `buttons` puede faltar. Pinta cada botón con su `label`; al tocarlo, envía su `action` sin modificarlo. **Si el botón trae `url`, es un enlace** (p. ej. «📅 Conectar mi calendario»): ábrelo en una pestaña nueva y no envíes nada al backend.
+- `attachment` (`kind: "ics"`) aparece cuando se agenda o mueve una cita. Ofrece dos botones: «Agregar a Google Calendar», que abre `attachment.gcalUrl` en una pestaña nueva (el evento llega prellenado), y «Descargar .ics», que abre `API + attachment.url`.
 - Mensajes con `dir: "in"` son los de la usuaria (para reconstruir el historial al recargar).
 
 ### Cargar el historial y actualizarse en vivo
@@ -83,7 +83,7 @@ setInterval(async () => {
 }, 1500);
 ```
 
-No hay WebSocket ni SSE: en Vercel serverless no son confiables. El polling alcanza para el demo.
+No hay WebSocket ni SSE: en Workers/serverless no son una buena base. El polling alcanza para el demo.
 
 Cuidado con duplicados: lo que devuelve `POST /messages` (`replies`) también aparecerá en el siguiente polling. Deduplica por `n` (o `id`).
 
@@ -116,13 +116,16 @@ await post('/api/demo/clock', { preset: 'monday-1830' });
 await post(`/api/users/${id}/reminder`, {});     // botón de demo: dispara el recordatorio a mano
 ```
 
-Hazlo con un botón visible en el panel de demo. No finjas automatización: el plan gratuito de Vercel no garantiza la hora exacta. En producción lo hace `/api/jobs/tick`.
+Hazlo con un botón visible en el panel de demo. No finjas automatización: en producción el recordatorio lo dispara un cron de Cloudflare cada 5 minutos (`/api/jobs/tick`), pero ese cron se pausa mientras el reloj de demo está simulado, así que en el demo se dispara a mano.
 
 **Momento 3 · «Hoy no puedo» y luego «listo».**
 
 ```ts
 await post(`/api/users/${id}/messages`, { text: 'hoy no puedo, se alargó la reunión' });
 // «Hecho, la moví al miércoles 28 a las 19:15. Mover no es fallar.» + nuevo .ics
+// «Listo» solo aplica a una cita cercana (±36 h). Como la cita se movió al miércoles, adelanta antes el reloj
+// hasta después de esa cita (la hora exacta sale de `appointment.startsAt` + 1 h):
+await post('/api/demo/clock', { now: appointment.startsAt /* + 1 h, en ISO */ });
 await post(`/api/users/${id}/messages`, { action: 'done' });
 // «Listo. Tu mensualidad ya estaba pagada: hoy recuperaste $11.633 de los $34.900.»
 ```
@@ -169,6 +172,28 @@ Todas son `POST`, cuerpo opcional, y devuelven `{ appointment, replies, now }`.
 | GET | `/meta` | Zona horaria, `demoUserId`, hora actual del backend, si Telegram está activo |
 | GET | `/health` | `{ ok: true }` |
 
+### Reglas de la sesión y disponibilidad
+
+| Método | Ruta | Cuerpo → respuesta |
+|---|---|---|
+| PATCH | `/users/:id/preferences` | `{ gymHours?: {open,close}, window?: {start,end}, sessionMin?: 30\|40\|50\|60, perWeek?, days?: number[] }` (todo opcional, merge) → `{ user }`. Las reglas aplican a las **próximas** propuestas (captura dominical, «mueve», renegociación); una cita ya agendada no cambia. La sesión debe caber entera en `window ∩ gymHours`; si no cabe en ningún día, `weekly-capture` responde 409 `no_slots`. `perWeek > 1` se guarda pero el flujo dominical sigue agendando una cita por semana (fase 2). |
+| POST | `/users/:id/busy` | `{ weekOf: "YYYY-MM-DD", intervals: [{start, end}] }` (ISO con zona) → `{ ok, count }`. Reemplaza los bloques ocupados de esa semana (lista vacía los borra). Solo inicio y fin, sin títulos (R2). El agente los esquiva igual que a un calendario conectado. Sirve para el plan B sin Google. |
+
+### Google Calendar (conexión real)
+
+Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendario, la mueve cuando ella pide «mueve» y propone horarios que no chocan con sus reuniones. El front solo ofrece el enlace de conexión.
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/users/:id/google` | `GoogleStatus`: `{ configured, connected, connectUrl }` |
+| GET | `/google/connect?userId=:id` | Redirige a Google para autorizar. Abre `connectUrl` en una pestaña nueva; al terminar, Google devuelve a una página «Calendario conectado» |
+| POST | `/users/:id/google/disconnect` | Desconecta el calendario |
+| GET | `/users/:id/google/events` (admin) | `{ events: [{ id, title, start, end, isLaCita, isDemoMeeting }] }`: próximos 21 días del calendario conectado; útil para mostrar el calendario real en el panel |
+| POST | `/google/demo-events` (admin) | `{ userId }`: siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas) |
+| POST | `/google/demo-events/clear` (admin) | `{ userId }`: borra esos eventos de demo |
+
+Tras conectar, el backend manda un mensaje al chat («Listo, quedó conectado tu Google Calendar…»), que aparece en el siguiente polling. El token de Google nunca sale del backend. La conexión funciona solo para usuarias de prueba autorizadas en el proyecto de Google (modo «En pruebas»).
+
 ### Demo y scheduler (piden `x-admin-token` si está configurado)
 
 | Método | Ruta | Cuerpo |
@@ -203,10 +228,12 @@ El backend lo maneja entero. El frontend no necesita nada, salvo mostrar un enla
 
 ## 8. Desplegar y apuntar el front a producción
 
-1. El backend se despliega en Vercel desde la carpeta `backend/` (entrada `api/index.ts`; reescritura de rutas en `vercel.json`).
-2. Variables de entorno de producción: ver `backend/.env.example`. Sin Upstash el estado se pierde entre invocaciones serverless; para el demo usa Upstash o corre el backend en una máquina local con `pnpm start`.
-3. En el front cambia `*_API_URL` a la URL desplegada y pide el `ADMIN_TOKEN` si se definió.
-4. Plan B sin red (R6): corre el backend en la laptop del demo (`pnpm start`) y el front apuntando a `http://localhost:8787`. Todo el flujo funciona sin internet, salvo Telegram.
+El backend corre en **Cloudflare Workers**: un Worker de entrada reenvía todo a un Durable Object que guarda el estado, y un cron cada 5 minutos ejecuta `/api/jobs/tick` (se pausa mientras el reloj de demo está simulado). La IA usa el binding de Workers AI, sin tokens extra.
+
+1. Despliegue (lo hace el backend): `cd backend && pnpm run deploy`. **Ya está desplegado en `https://la-cita-api.x-liberona.workers.dev`** (usa esa URL como `*_API_URL`).
+2. En el front cambia `*_API_URL` a esa URL y pide el `ADMIN_TOKEN` al backend para las rutas de demo.
+3. CORS está abierto por defecto. Si quieres restringirlo, el backend define `CORS_ORIGIN` con la URL del front.
+4. Plan B sin red (R6): corre el backend en la laptop del demo con `cd backend && pnpm start` (puerto 8787, estado en memoria) y apunta el front a `http://localhost:8787`. Todo el flujo funciona sin internet, salvo Telegram y la IA (que cae a reglas locales).
 
 ## 9. Cómo pedir cambios al backend
 

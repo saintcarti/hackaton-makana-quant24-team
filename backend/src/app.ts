@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
+import { accessToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
 import { addDays, localParts, mondayOf, TZ, zonedToUtc } from './time.js';
@@ -133,6 +134,44 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     return c.json({ user }, 201);
   });
 
+  const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+  const prefsSchema = z
+    .object({
+      gymHours: z.object({ open: hhmm, close: hhmm }).optional(),
+      window: z.object({ start: hhmm, end: hhmm }).optional(),
+      sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
+      perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+      days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+    })
+    .strict();
+
+  app.patch('/api/users/:id/preferences', async (c) => {
+    const prefs = prefsSchema.parse(await c.req.json().catch(() => ({})));
+    const check = (a?: { open?: string; close?: string; start?: string; end?: string }) => {
+      const lo = a?.open ?? a?.start;
+      const hi = a?.close ?? a?.end;
+      if (lo && hi && lo >= hi) throw new DomainError('invalid_range', 'La hora de inicio debe ser anterior a la de término', 400);
+    };
+    check(prefs.gymHours);
+    check(prefs.window);
+    const user = await engine.run((x) => engine.setPreferences(x, c.req.param('id'), prefs));
+    return c.json({ user });
+  });
+
+  app.post('/api/users/:id/busy', async (c) => {
+    const body = z
+      .object({
+        weekOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        intervals: z.array(z.object({ start: z.string().datetime({ offset: true }), end: z.string().datetime({ offset: true }) })).max(300),
+      })
+      .parse(await c.req.json().catch(() => ({})));
+    const intervals = body.intervals
+      .map((i) => [Date.parse(i.start), Date.parse(i.end)] as [number, number])
+      .filter(([s, e]) => e > s);
+    await engine.run((x) => engine.setBusy(x, c.req.param('id'), body.weekOf, intervals));
+    return c.json({ ok: true, count: intervals.length });
+  });
+
   app.get('/api/users', async (c) => c.json({ users: await engine.read((x) => Object.values(x.db.users)) }));
 
   app.get('/api/users/:id', async (c) =>
@@ -249,6 +288,143 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
 
   app.post('/api/jobs/tick', requireAdmin, async (c) => {
     const out = await engine.run((x) => ({ actions: engine.tick(x), now: x.now.toISOString() }));
+    return c.json(out);
+  });
+
+
+  // ───────────── Google Calendar ─────────────
+  const page = (title: string, body: string, status = 200) =>
+    new Response(
+      `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>` +
+        `<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;text-align:center"><h1 style="font-size:1.4rem">${title}</h1><p>${body}</p></body></html>`,
+      { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+    );
+
+  app.get('/api/google/connect', async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Falta configurar GOOGLE_CLIENT_ID/SECRET/PUBLIC_URL', 503);
+    const userId = c.req.query('userId') ?? '';
+    await engine.read((x) => {
+      if (!x.db.users[userId]) throw new DomainError('user_not_found', 'Usuario no encontrado', 404);
+    });
+    return c.redirect(authUrl(g, await signState(g.clientSecret, userId)), 302);
+  });
+
+  app.get('/api/google/callback', async (c) => {
+    const g = engine.google;
+    if (!g) return page('Calendario no disponible', 'La integración no está configurada.', 503);
+    if (c.req.query('error')) return page('No se conectó el calendario', 'Cancelaste el permiso. Puedes volver al chat y reintentar cuando quieras.', 400);
+    const userId = await verifyState(g.clientSecret, c.req.query('state') ?? '');
+    const code = c.req.query('code');
+    if (!userId || !code) return page('Enlace vencido', 'Vuelve al chat y pide de nuevo «conectar calendario».', 400);
+    try {
+      const link = await exchangeCode(g, code);
+      await engine.run((x) => engine.connectGoogle(x, userId, link));
+    } catch (err) {
+      console.error(JSON.stringify({ evt: 'google_callback_error', message: (err as Error).message }));
+      return page('No pude conectar el calendario', 'Reintenta desde el chat. Si persiste, avisa al equipo.', 502);
+    }
+    return page('Calendario conectado ✅', 'Puedes cerrar esta pestaña y volver al chat.');
+  });
+
+  app.get('/api/users/:id/google', async (c) =>
+    c.json(
+      await engine.read((x) => {
+        const id = c.req.param('id');
+        if (!x.db.users[id]) throw new DomainError('user_not_found', 'Usuario no encontrado', 404);
+        const g = engine.google;
+        return {
+          configured: !!g,
+          connected: engine.isConnected(x, id),
+          connectUrl: g ? `${g.publicUrl}/api/google/connect?userId=${encodeURIComponent(id)}` : null,
+        };
+      }),
+    ),
+  );
+
+  app.post('/api/users/:id/google/disconnect', async (c) => {
+    const id = c.req.param('id');
+    await engine.run((x) => engine.disconnectGoogle(x, id));
+    return c.json({ connected: false });
+  });
+
+
+  /** Próximos eventos del calendario conectado (reuniones de demo + citas de La Cita), para el panel de demo. */
+  app.get('/api/users/:id/google/events', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const id = c.req.param('id');
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[id];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      try {
+        const events = await listEvents(await accessToken(g, link, x.now.getTime()), x.now.getTime(), x.now.getTime() + 21 * 86400_000);
+        return { events };
+      } catch (err) {
+        throw new DomainError('google_calendar', (err as Error).message, 502);
+      }
+    });
+    return c.json(out);
+  });
+
+  /** Siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas). */
+  app.post('/api/google/demo-events', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const { userId } = z.object({ userId: z.string() }).parse(await c.req.json());
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[userId];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      let token: string;
+      try {
+        token = await accessToken(g, link, x.now.getTime());
+      } catch (err) {
+        throw new DomainError('google_token', (err as Error).message, 502);
+      }
+      // [día de semana, inicio, fin, título]: algunas terminan justo sobre las 19:15 a propósito.
+      const plan: Array<[number, string, string, string]> = [
+        [1, '17:00', '19:00', 'Reunión de avance de obra'],
+        [2, '15:00', '17:30', 'Revisión de presupuestos'],
+        [3, '18:30', '19:30', 'Revisión con arquitectos'],
+        [4, '17:00', '19:30', 'Cierre de hormigonado'],
+        [5, '17:30', '18:30', 'Cierre semanal del proyecto'],
+      ];
+      const today = localParts(x.now);
+      let created = 0;
+      for (let i = 0; i < 14; i++) {
+        const day = addDays(today, i);
+        for (const [wd, from, to, title] of plan) {
+          if (day.weekday !== wd) continue;
+          const [fh, fm] = from.split(':').map(Number);
+          const [th, tm] = to.split(':').map(Number);
+          const start = zonedToUtc(day.year, day.month, day.day, fh!, fm!);
+          const end = zonedToUtc(day.year, day.month, day.day, th!, tm!);
+          if (end.getTime() <= x.now.getTime()) continue;
+          try {
+            await createDemoEvent(token, title, start, end);
+          } catch (err) {
+            throw new DomainError('google_calendar', (err as Error).message, 502);
+          }
+          created += 1;
+        }
+      }
+      link.busyCache = undefined;
+      return { created };
+    });
+    return c.json(out);
+  });
+
+  app.post('/api/google/demo-events/clear', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const { userId } = z.object({ userId: z.string() }).parse(await c.req.json());
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[userId];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      const deleted = await clearDemoEvents(await accessToken(g, link, x.now.getTime()));
+      link.busyCache = undefined;
+      return { deleted };
+    });
     return c.json(out);
   });
 
