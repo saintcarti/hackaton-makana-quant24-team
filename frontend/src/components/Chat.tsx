@@ -116,13 +116,13 @@ export default function Chat({
   const current = users.find((u) => u.id === userId);
 
   return (
-    <section className="panel chat" aria-label="Conversación con La Cita">
+    <section className="panel chat" aria-label="Conversación con gogym">
       <header className="chat-head">
         <div className="avatar" aria-hidden="true">
           C
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 650 }}>La Cita</div>
+          <div style={{ fontWeight: 650 }}>gogym</div>
           <div className="small muted">
             {current?.channel.type === 'telegram' ? 'Espejo del chat de Telegram' : 'Simulador · mismo flujo que Telegram'}
           </div>
@@ -147,7 +147,7 @@ export default function Chat({
             {error && errorStatus === 404
               ? 'Esta conversación todavía no existe en la API.'
               : error
-                ? 'No hay conexión con La Cita. Revisa que la API esté arriba.'
+                ? 'No hay conexión con gogym. Revisa que la API esté arriba.'
                 : 'Todavía no hay mensajes. El domingo a las 20:00 llega la primera pregunta: usa el panel de demo para adelantar el reloj.'}
           </p>
         )}

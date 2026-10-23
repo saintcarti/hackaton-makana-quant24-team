@@ -59,4 +59,48 @@ Todos los campos son opcionales (merge). Al recibir `{ user }` con `gymHours` y 
 
 Con eso alcanza para empezar; días y veces por semana se ajustan después desde la web.
 
-**Fuera a propósito:** rutinas, ejercicios, series y grupos musculares. El caso lo pone en «lo que mata la solución» (`docs/hackathon/senales/00-bases/scoring-contract.md:50`) y R4 prohíbe prescribir ejercicio con dolor.
+**Sigue fuera:** ejercicios, series y repeticiones. Los grupos musculares entraron por decisión de Benjamín (ver §4).
+
+## 4. Plan por split: grupos musculares con descanso
+
+**Decisión de Benjamín (23-oct).** La semana se organiza por split de grupos musculares. Esto contradice dos exclusiones escritas: `AGENTS.md` («sin contenido de rutinas») y la ficha del caso, que pone «más contenido/rutinas (ya probó 3 apps)» en la columna «Lo que MATA una solución» (`docs/hackathon/senales/00-bases/scoring-contract.md:50`). Conviene acordar entre los dos cómo se defiende frente al jurado antes del pitch.
+
+**Caso de uso.** Camila elige su split y cuántas sesiones por semana:
+
+| Split | Sesiones | Focos |
+|---|---|---|
+| Full body | 1, 2 o 3 | todo el cuerpo cada vez |
+| Upper / Lower | 2 o 4 | tren superior · piernas, glúteos y core |
+| Push / Pull / Legs | 3 o 6 | pecho, hombros y tríceps · espalda y bíceps · piernas, glúteos y core |
+| Pecho-espalda / Piernas / Brazos | 3 | pecho, espalda y core · piernas y glúteos · brazos y hombros |
+| Un grupo por día | 5 | pecho · espalda · piernas y glúteos · hombros y core · brazos |
+
+La web reparte el foco de cada sesión en los días donde cabe según su calendario, cubre los 8 grupos al menos una vez por semana y deja al menos un día de descanso entre dos sesiones que trabajan el mismo grupo (también entre el domingo y el lunes siguiente: por eso PPL ×3 cae lun/mié/vie y no lun/jue/dom). Hoy lo calcula sola, con `planSplit` en `frontend/src/lib/splits.ts` (función pura, 86 tests en verde), y avisa en pantalla que el agente todavía no lo usa.
+
+**Propuesta de contrato.** Hoy `PATCH /preferences` rechaza campos desconocidos (`.strict()` en `backend/src/app.ts`) y `perWeek` mayor que 3, así que la web le manda las reglas sin el split y con `perWeek` acotado a 3; el split queda en el navegador. Para que el agente lo use:
+
+```
+PATCH /api/users/:id/preferences
+{ "split": { "id": "ppl", "sessions": 3 } }    // fullbody | upper-lower | ppl | torso-piernas-brazos | cinco-dias
+→ 200 { "user": User }                          // User.split
+
+AppointmentView.focus?: { "dayTypeId": "push", "label": "Push", "groups": ["pecho", "hombros", "triceps"] }
+```
+
+**Qué cambia en el agente:**
+- Al proponer o mover una cita, elige el foco con las mismas reglas que `planSplit`: orden del split, un día de descanso por grupo y cobertura semanal. Lo más simple es portar `frontend/src/lib/splits.ts` tal cual: no depende de nada del front.
+- El recordatorio puede nombrar el foco («Hoy toca Pull: espalda y bíceps»), sin ejercicios, series ni repeticiones.
+- **R4:** si Camila menciona dolor, el agente deriva como hoy y **no** asigna foco hasta que ella diga que ya lo conversó con un profesional. La web ya pausa el plan cuando aparece la derivación en el chat: detecta el texto de `backend/src/tone.ts` («kinesiólogo … médico deportólogo»). Si cambian ese texto, avísenme.
+- Varias citas por semana sigue siendo fase 2 (§3). Mientras tanto el foco aplica a la cita semanal que ya agenda, y la web sugiere las demás sesiones del split.
+
+**Telegram, primer contacto:** una pregunta más, de un toque: «¿Cómo divides tu semana?» [Full body] [Upper / Lower] [Push / Pull / Legs] [Otro].
+
+## 5. Nombre: La Cita → gogym
+
+Benjamín renombró la app a **gogym** (23-oct). La web ya dice gogym. Para que el demo no muestre dos nombres:
+
+- `backend/src/tone.ts:56`: «Hola. Soy La Cita: …» → «Hola. Soy gogym: …».
+- `backend/src/google.ts:137`, `backend/src/ics.ts:23` y `:44`: título del evento «La Cita contigo» → «Tu cita contigo · gogym» («tu cita contigo» sigue siendo el concepto).
+- `backend/src/ics.ts:15`: `PRODID:-//La Cita//…` → `-//gogym//…`.
+- Nombre visible del bot en BotFather.
+- El Worker (`la-cita-api`) y la URL de Vercel (`la-cita-nine`) pueden quedar como están: cambiarlos antes del pitch obliga a reconfigurar `VITE_API_URL` y los enlaces ya compartidos.

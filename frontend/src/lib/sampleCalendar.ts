@@ -45,7 +45,7 @@ const icsText = (s: string) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').rep
  */
 export function sampleIcs(firstWeekOf: string, weeks: number): string {
   const stamp = icsDate(new Date());
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//La Cita//Calendario de ejemplo//ES', 'CALSCALE:GREGORIAN'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//gogym//Calendario de ejemplo//ES', 'CALSCALE:GREGORIAN'];
   sampleWorkWeek(firstWeekOf).forEach((e, i) => {
     lines.push(
       'BEGIN:VEVENT',
@@ -55,7 +55,7 @@ export function sampleIcs(firstWeekOf: string, weeks: number): string {
       `DTEND:${icsDate(e.end)}`,
       `RRULE:FREQ=WEEKLY;COUNT=${weeks}`,
       `SUMMARY:${icsText(e.title)}`,
-      'DESCRIPTION:Camila sintética · datos inventados para el demo de La Cita',
+      'DESCRIPTION:Camila sintética · datos inventados para el demo de gogym',
       'TRANSP:OPAQUE',
       'END:VEVENT',
     );

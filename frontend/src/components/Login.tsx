@@ -28,7 +28,7 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
   return (
     <main className="login">
       <section className="login-story">
-        <div className="brand">La Cita</div>
+        <div className="brand">gogym</div>
         <div>
           <div className="eyebrow">Domingo, 23:55</div>
           <h1 className="display login-quote">«Mañana parto.»</h1>
@@ -47,7 +47,7 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
             </li>
           </ul>
           <p className="login-lede">
-            La Cita convierte esa frase en una hora real en tu calendario. Si el día se complica, la mueves.
+            gogym convierte esa frase en una hora real en tu calendario. Si el día se complica, la mueves.
             Mover no es fallar.
           </p>
         </div>

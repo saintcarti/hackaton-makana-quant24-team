@@ -114,7 +114,7 @@ async function req<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unk
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, 'network', 'No pudimos conectar con La Cita.');
+    throw new ApiError(0, 'network', 'No pudimos conectar con gogym.');
   }
 
   if (!res.ok) {
