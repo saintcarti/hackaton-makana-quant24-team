@@ -2,9 +2,9 @@ export type Intent = 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pai
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
 const RESUME = /\b(ya|lo)\b.*\b(convers|habl|consult|vi|fui|revis)\w*\b.*\b(kinesi\w*|m[eé]dic\w*|deport[oó]log\w*|profesional)\b/;
-const ROUTINE = /\b(rutina|qu[eé] (me )?toca|qu[eé] hago hoy|ejercicios de hoy)\b/;
+const ROUTINE = /\b(rutinas?|ejercicios?|m[uú]sculos?|grupos? musculares?|qu[eé] (me )?toca|qu[eé] (voy a )?(entreno|entrenar[eé]?|trabajo|trabajar[eé]?|hago))\b/;
 const MOVE =
-  /\b(mueve|mover|mu[eé]vela|muevela|cambia(la|r)?|reagenda|re-agenda|hoy no (puedo|alcanzo|voy)|no puedo|no alcanzo|se alarg[oó]|se alargaron?|junta|reuni[oó]n|me quedo trabajando|otro d[ií]a|m[aá]s tarde)\b/;
+  /\b(mueve\w*|mover\w*|mu[eé]vela|muevela|cambia\w*|reagend\w*|re-agend\w*|pasa(la|lo|r)? (para|a)|hoy no (puedo|alcanzo|voy)|no podr[eé] ir|no puedo|no alcanzo|se alarg[oó]|se alargaron?|junta|reuni[oó]n|me quedo trabajando|otro d[ií]a|m[aá]s tarde)\b/;
 const DONE = /\b(listo|list[ao]|ya fui|fui|hecho|termin[eé]|entren[eé]|cumpl[ií])\b/;
 const SKIP = /\b(esta semana no|semana no|no esta semana|me tomo la semana|descanso esta semana)\b/;
 const START = /^\s*(\/start\b|hola\b|buenas\b|empezar|comenzar)/;
@@ -30,7 +30,38 @@ export function classifyByRules(text: string): Intent {
   return 'unknown';
 }
 
+/** Cuándo quiere la cita, según el modelo. Fecha local y hora local; cualquiera puede faltar. */
+export interface WhenGuess {
+  date: string | null;
+  time: string | null;
+}
+
+/** Contexto para que el modelo resuelva "mañana", "el viernes", etc. (hora de Chile). */
+export interface WhenContext {
+  weekdayName: string;
+  date: string;
+  time: string;
+}
+
+/** Lee la respuesta del modelo: el primer objeto JSON, validado. Nunca lanza. */
+export function toWhenGuess(raw: string | undefined | null): WhenGuess | null {
+  if (!raw) return null;
+  const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, ' ');
+  const m = clean.match(/\{[^{}]*\}/);
+  if (!m) return null;
+  try {
+    const j = JSON.parse(m[0]) as { date?: unknown; time?: unknown };
+    const date = typeof j.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(j.date) ? j.date : null;
+    const time = typeof j.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.time) ? j.time : null;
+    return date || time ? { date, time } : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface LlmParser {
+  /** Extrae el día y la hora que ella QUIERE para su cita (ignora la hora que no puede). No genera texto para ella. */
+  extractWhen?(text: string, ctx: WhenContext): Promise<WhenGuess | null>;
   /** Devuelve intención o null si no puede/no hay llave. NO genera texto para la usuaria. */
   classify(text: string): Promise<Intent | null>;
 }
@@ -106,6 +137,30 @@ export class WorkersAiParser implements LlmParser {
     private model = DEFAULT_AI_MODEL,
     private opts: WorkersAiOptions = {},
   ) {}
+
+  async extractWhen(text: string, ctx: WhenContext): Promise<WhenGuess | null> {
+    try {
+      const result = await this.run(this.model, {
+        max_tokens: this.opts.maxTokens ?? 48,
+        temperature: 0,
+        ...(this.opts.extraBody ?? NO_THINKING),
+        messages: [
+          {
+            role: 'system',
+            content:
+              `Hoy es ${ctx.weekdayName} ${ctx.date} y son las ${ctx.time} (hora de Chile). La usuaria quiere agendar o mover su cita de gimnasio. ` +
+              'Extrae el día y la hora a la que QUIERE la cita; ignora la hora a la que no puede ir. En un gym vespertino "a las 8" es 20:00. ' +
+              'Responde SOLO un JSON: {"date":"YYYY-MM-DD" o null,"time":"HH:MM" o null}.',
+          },
+          { role: 'user', content: text.slice(0, 300) },
+        ],
+      });
+      return toWhenGuess(extractText(result));
+    } catch (err) {
+      console.warn(JSON.stringify({ evt: 'ai_error', model: this.model, message: (err as Error).message }));
+      return null;
+    }
+  }
 
   async classify(text: string): Promise<Intent | null> {
     try {

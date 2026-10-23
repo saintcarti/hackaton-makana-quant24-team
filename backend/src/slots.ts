@@ -134,62 +134,91 @@ const WEEKDAY_WORDS: Array<[RegExp, number]> = [
   [/\bs[aá]bado\b/, 6],
 ];
 
-/** Extrae hora de textos como "20:30", "20 hrs", "a las 8", "8 pm". Null si no hay. */
+/**
+ * Extrae la hora de textos como "20:30", "20 hrs", "a las 8", "8 pm". Si hay varias, prefiere la que sigue a
+ * "para / pasar a / mover a / cambiar a" (la hora destino) y si no, la última. Null si no hay.
+ */
 export function parseClock(text: string): { hour: number; minute: number } | null {
   const t = text.toLowerCase();
-  let m = /\b([01]?\d|2[0-3])[:.h]([0-5]\d)\b/.exec(t);
-  if (m) return { hour: Number(m[1]), minute: Number(m[2]) };
-  m = /\b(?:a\s+las\s+)?([01]?\d|2[0-3])\s*(am|pm|hrs?|horas?)\b/.exec(t);
-  if (m) {
-    let hour = Number(m[1]);
-    const suffix = m[2];
-    if (suffix === 'pm' && hour < 12) hour += 12;
-    if (suffix === 'am' && hour === 12) hour = 0;
-    return { hour, minute: 0 };
+  type Hit = { index: number; end: number; hour: number; minute: number };
+  const hits: Hit[] = [];
+  const overlaps = (i: number, e: number) => hits.some((h) => i < h.end && e > h.index);
+
+  for (const m of t.matchAll(/\b([01]?\d|2[0-3])[:.h]([0-5]\d)\b/g)) {
+    hits.push({ index: m.index!, end: m.index! + m[0].length, hour: Number(m[1]), minute: Number(m[2]) });
   }
-  m = /\ba\s+las\s+([01]?\d|2[0-3])\b/.exec(t);
-  if (m) {
+  for (const m of t.matchAll(/\b(?:a\s+las\s+)?([01]?\d|2[0-3])\s*(am|pm|hrs?|horas?)\b/g)) {
+    if (overlaps(m.index!, m.index! + m[0].length)) continue;
+    let hour = Number(m[1]);
+    if (m[2] === 'pm' && hour < 12) hour += 12;
+    if (m[2] === 'am' && hour === 12) hour = 0;
+    hits.push({ index: m.index!, end: m.index! + m[0].length, hour, minute: 0 });
+  }
+  for (const m of t.matchAll(/\ba\s+las\s+([01]?\d|2[0-3])\b/g)) {
+    if (overlaps(m.index!, m.index! + m[0].length)) continue;
     let hour = Number(m[1]);
     if (hour >= 1 && hour <= 11) hour += 12; // "a las 8" en un gym vespertino = 20:00
-    return { hour, minute: 0 };
+    hits.push({ index: m.index!, end: m.index! + m[0].length, hour, minute: 0 });
   }
-  return null;
+  if (!hits.length) return null;
+  hits.sort((x, y) => x.index - y.index);
+  const target = hits.find((h) => /(?:para|pasar(?:la|lo)?|mover(?:la|lo)?|cambiar(?:la|lo)?)\s+(?:a\s+)?(?:las?\s+)?$/.test(t.slice(0, h.index)));
+  const pick = target ?? hits[hits.length - 1]!;
+  return { hour: pick.hour, minute: pick.minute };
 }
+
+/** Cláusula que explica el motivo ("debido a…", "porque…"): lo que dice no es la hora pedida. */
+const REASON = /\b(?:debido a|porque|ya que|pues)\b/;
 
 /**
  * Interpreta "martes 20:30", "mañana a las 19", "el viernes". Devuelve null si no entiende.
  * Si solo hay día usa la hora preferida; si solo hay hora usa el próximo día compatible.
+ * Con `requireExplicit`, "hoy" solo no cuenta (en "hoy no puedo" no hay una hora nueva).
  */
-export function parseWhen(text: string, now: Date, user: User): Date | null {
+export function parseWhen(text: string, now: Date, user: User, opts: { requireExplicit?: boolean } = {}): Date | null {
   const t = text.toLowerCase();
+  const main = t.split(REASON)[0]!.trim();
+  if (main && main !== t) {
+    const first = parseWhen(main, now, user, opts);
+    if (first) return first;
+  }
   const clock = parseClock(t);
   const pref = parseHHMM(user.preferredTime);
   const start = localParts(now);
 
+  // Un día de la semana nombrado manda sobre "hoy"/"mañana" ("hoy no puedo, mejor el miércoles").
   let targetDay: { year: number; month: number; day: number } | null = null;
-  if (/\bmañana\b/.test(t) && !/\bpasado\s+mañana\b/.test(t)) targetDay = addDays(start, 1);
-  else if (/\bpasado\s+mañana\b/.test(t)) targetDay = addDays(start, 2);
-  else if (/\bhoy\b/.test(t)) targetDay = addDays(start, 0);
-  else {
-    for (const [re, weekday] of WEEKDAY_WORDS) {
-      if (!re.test(t)) continue;
-      for (let i = 0; i < 8; i++) {
-        const d = addDays(start, i);
-        if (d.weekday === weekday) {
-          targetDay = d;
-          break;
-        }
+  let explicitDay = false;
+  for (const [re, weekday] of WEEKDAY_WORDS) {
+    if (!re.test(t)) continue;
+    for (let i = 0; i < 8; i++) {
+      const d = addDays(start, i);
+      if (d.weekday === weekday) {
+        targetDay = d;
+        break;
       }
-      break;
     }
+    explicitDay = true;
+    break;
+  }
+  if (!targetDay) {
+    if (/\bpasado\s+mañana\b/.test(t)) {
+      targetDay = addDays(start, 2);
+      explicitDay = true;
+    } else if (/\bmañana\b/.test(t)) {
+      targetDay = addDays(start, 1);
+      explicitDay = true;
+    } else if (/\bhoy\b/.test(t)) targetDay = addDays(start, 0);
   }
 
   if (!targetDay && !clock) return null;
+  if (opts.requireExplicit && !explicitDay && !clock) return null;
 
   if (!targetDay && clock) {
+    const days = user.days?.length ? user.days : PREFERRED_DAYS;
     for (let i = 0; i < 8; i++) {
       const d = addDays(start, i);
-      if (!(user.days?.length ? user.days : PREFERRED_DAYS).includes(d.weekday)) continue;
+      if (!days.includes(d.weekday)) continue;
       const cand = zonedToUtc(d.year, d.month, d.day, clock.hour, clock.minute);
       if (cand.getTime() > now.getTime() + MIN_LEAD_MS) return cand;
     }
@@ -206,6 +235,25 @@ export function parseWhen(text: string, now: Date, user: User): Date | null {
     cand = zonedToUtc(day.year, day.month, day.day, hh.hour, hh.minute);
   }
   return cand;
+}
+
+/** Duración estándar más larga (60/50/40/30) que cabe en algún horario de ese día, según el calendario. 0 si ninguna. */
+export function maxFitMinutes(
+  user: User,
+  day: { year: number; month: number; day: number },
+  now: Date,
+  busy: Busy[],
+  taken: Date[] = [],
+): number {
+  const probe = { ...user, sessionMin: 60 };
+  const [lo, hi] = bounds(user);
+  let best = 0;
+  for (let m = lo; m + 30 <= hi; m += 15) {
+    const slot = zonedToUtc(day.year, day.month, day.day, Math.floor(m / 60), m % 60);
+    if (slot.getTime() < now.getTime() + MIN_LEAD_MS) continue;
+    best = Math.max(best, availableMinutes(probe, slot, busy, taken));
+  }
+  return [60, 50, 40, 30].find((len) => len <= best) ?? 0;
 }
 
 export { dateKey };

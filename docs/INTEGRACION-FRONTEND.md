@@ -178,6 +178,14 @@ Al agendar o mover una cita el backend arma `AppointmentView.routine` con los mi
 
 En Telegram: el recordatorio del día trae un segundo mensaje con la rutina, y ella puede pedirla escribiendo «qué toca hoy» o «mi rutina». También va en la descripción del evento de Google y del `.ics`. R4: con pausa por dolor no hay rutina ni foco. Sin pesos, sin cifras del cuerpo y sin metas de resultado.
 
+### El agente elige split y duración (modo automático)
+
+Si la usuaria tiene `perWeek` (1, 2 o 3) y no `autoPlan: false`, el backend corre `autoDecide` (copia literal de `frontend/src/lib/autoplan.ts`: `backend/src/autoplan.ts`) en la captura dominical y cuando «mueve» pasa la cita a otra semana. Arma un `DayRoom` por día con `availableMinutes` (calendario conectado + `POST /busy` + otras citas + horario del gym), guarda `user.split` y `user.sessionMin` y recién entonces propone horarios, así que el mensaje del domingo ya nace con la duración de esa semana. No decide de nuevo una semana empezada (alguna cita ya llegó a su hora) ni guarda una decisión sin sesiones. Para el modo manual de la hoja de edición, la web manda `PATCH /preferences { autoPlan: false, split, sessionMin }`; con `autoPlan: true` vuelve al automático.
+
+### Lenguaje natural
+
+Las reglas entienden el día y la hora en texto libre: toman la hora destino («cámbiala para las 20:00»), ignoran la cláusula del motivo («debido a que hoy a las 19:15…»), dan prioridad al día nombrado sobre «hoy», y una pregunta («¿qué músculos trabajo el lunes?») nunca mueve la cita: responde la rutina o el foco de ese día. Si las reglas no entienden y hay Workers AI, el modelo solo extrae `{date, time}` (JSON validado); el texto que ve ella sale siempre de plantillas.
+
 ### Split y foco por sesión
 
 `PATCH /users/:id/preferences { split: { id, sessions } }` guarda el split (`fullbody` 1·2·3, `upper-lower` 2·4, `ppl` 3·6, `torso-piernas-brazos` 3, `cinco-dias` 5; otra combinación responde 400 `invalid_split`). El backend corre el mismo planificador que la web (`backend/src/splits.ts` es copia literal de `frontend/src/lib/splits.ts`: si uno cambia, cambia el otro) y deja el foco en `AppointmentView.focus` al agendar o mover la cita. El recordatorio lo nombra: «Hoy toca Pull: espalda y bíceps», sin ejercicios, series ni repeticiones.

@@ -2,6 +2,8 @@
 
 > **Estado (backend en `main`):** §1 y §3 implementados (`POST /users/:id/busy`, `PATCH /users/:id/preferences`; ver `docs/INTEGRACION-FRONTEND.md`). §2 era un error del ejemplo del doc, ya corregido. Además el backend conecta Google por OAuth en el servidor (`GET /users/:id/google`, `connectUrl`): la web lo usa y deja `VITE_GOOGLE_CLIENT_ID` vacío para no pedirle a Camila dos autorizaciones.
 
+> **Estado §6 (backend en `main`):** `backend/src/autoplan.ts` es copia literal de `frontend/src/lib/autoplan.ts`; se llama en la captura dominical y al mover a otra semana. Usa `user.perWeek`; con `autoPlan: false` (modo manual) no decide. Detalle en `docs/INTEGRACION-FRONTEND.md`.
+
 > **Estado §4 y §5 (backend en `main`, desplegado):** `PATCH /preferences { split: {id, sessions} }` (400 `invalid_split` si el split no ofrece esa cantidad), `AppointmentView.focus` y el foco en el recordatorio («Hoy toca Pull: espalda y bíceps»). R4: con dolor el agente deriva, pone `user.painPause` y no asigna foco; se retoma con «ya lo conversé con mi kinesiólogo». El planificador del backend es copia literal de `frontend/src/lib/splits.ts`. Rename: el saludo, el evento de Google y el `.ics` dicen «gogym» / «Tu cita contigo · gogym». **Pendiente (no hecho):** las preguntas de primer contacto en Telegram (horario del gym, duración, split); hoy se configuran desde la web.
 
 Para @saintcarti. Según `docs/DIVISION-DE-TRABAJO.md`, lo que el front necesita y la API no da se pide acá con su caso de uso. Ninguno se simula en el front.
