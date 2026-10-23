@@ -146,6 +146,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       window: z.object({ start: hhmm, end: hhmm }).optional(),
       sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
       perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+      autoPlan: z.boolean().optional(),
       days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
       split: z.object({ id: z.enum(['fullbody', 'upper-lower', 'ppl', 'torso-piernas-brazos', 'cinco-dias']), sessions: z.number().int() }).optional(),
     })

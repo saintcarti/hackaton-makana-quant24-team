@@ -22,6 +22,8 @@ export interface User {
   sessionMin?: number;
   /** Veces por semana que quiere ir (1 | 2 | 3). Hoy el flujo dominical agenda una; el resto es fase 2. */
   perWeek?: number;
+  /** El agente elige split y duración cada semana con el calendario (por defecto sí). `false` = modo manual: se respeta lo que ella fijó. */
+  autoPlan?: boolean;
   /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
   days?: number[];
   /** Split elegido (grupos musculares por sesión). Sin ejercicios, series ni repeticiones. */

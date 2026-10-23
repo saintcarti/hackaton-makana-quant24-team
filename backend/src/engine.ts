@@ -2,13 +2,14 @@ import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { GoogleConfig, freeBusy, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
+import { autoDecide, type DayRoom } from './autoplan.js';
 import { buildRoutine } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
-import { Busy, PREFERRED_DAYS, availableMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
-import { addDays, dateKey, formatSlot, formatTime, localParts, mondayOf, parseDateKey } from './time.js';
+import { addDays, dateKey, dayName, formatSlot, formatTime, localParts, mondayOf, parseDateKey, parseHHMM, zonedToUtc } from './time.js';
 import {
   Appointment,
   Button,
@@ -74,6 +75,8 @@ export interface EngineDeps {
   google?: GoogleConfig | null;
   config?: Partial<Config>;
 }
+
+const WEEKDAY_NAMES = [/\bdomingo\b/, /\blunes\b/, /\bmartes\b/, /\bmi[eé]rcoles\b/, /\bjueves\b/, /\bviernes\b/, /\bs[aá]bado\b/];
 
 export class Engine {
   readonly config: Config;
@@ -239,12 +242,13 @@ export class Engine {
   }
 
   /** Reglas de la sesión (merge). Las reglas nuevas aplican a las próximas propuestas, no a citas ya agendadas. */
-  setPreferences(c: Ctx, userId: string, prefs: Partial<Pick<User, 'gymHours' | 'sessionMin' | 'perWeek' | 'days'>> & { window?: User['window'] }): User {
+  setPreferences(c: Ctx, userId: string, prefs: Partial<Pick<User, 'gymHours' | 'sessionMin' | 'perWeek' | 'days' | 'autoPlan'>> & { window?: User['window'] }): User {
     const user = this.user(c, userId);
     if (prefs.window) user.window = prefs.window;
     if (prefs.gymHours) user.gymHours = prefs.gymHours;
     if (prefs.sessionMin !== undefined) user.sessionMin = prefs.sessionMin;
     if (prefs.perWeek !== undefined) user.perWeek = prefs.perWeek;
+    if (prefs.autoPlan !== undefined) user.autoPlan = prefs.autoPlan;
     if (prefs.days) user.days = [...new Set(prefs.days)].sort();
     // La hora preferida tiene que seguir cayendo dentro de la ventana.
     const [ps, pe] = [user.window.start, user.window.end];
@@ -349,6 +353,10 @@ export class Engine {
     for (const a of Object.values(c.db.appointments)) {
       if (a.userId === userId && a.status === 'proposed') delete c.db.appointments[a.id];
     }
+    // La semana objetivo es la del primer horario posible; el agente decide split y duración para esa semana.
+    const [probe] = nextSlots(user, c.now, 1, this.taken(c, userId), this.busyFor(c, userId));
+    const targetMonday = probe ? mondayOf(probe) : mondayOf(new Date(c.now.getTime() + 7 * 86400_000));
+    this.autoPlanWeek(c, user, targetMonday);
     const options = nextSlots(user, c.now, 2, this.taken(c, userId), this.busyFor(c, userId));
     if (options.length === 0) throw new DomainError('no_slots', 'No hay horarios disponibles', 409);
     const appt: Appointment = {
@@ -384,6 +392,42 @@ export class Engine {
    * Foco de la cita según el split: corre el mismo planificador que la web sobre los días de esa semana
    * (los que la usuaria marcó, más el de la cita) y toma el foco de la fecha de la cita. R4: sin foco mientras dure la pausa por dolor.
    */
+  /**
+   * El agente decide el split y la duración de la semana `monday` mirando el calendario (pedido §6 del front).
+   * Solo si ella dijo cuántas veces quiere ir (`perWeek`) y no pasó a modo manual (`autoPlan: false`).
+   * No toca una semana empezada (alguna cita ya llegó a su hora) ni guarda una decisión sin sesiones.
+   */
+  private autoPlanWeek(c: Ctx, user: User, monday: string) {
+    if (user.autoPlan === false || user.perWeek == null) return;
+    const local = (iso: string) => dateKey(localParts(new Date(iso)));
+    const inWeek = Object.values(c.db.appointments).filter(
+      (a) => a.userId === user.id && a.weekOf === monday && a.startsAt && a.status !== 'lapsed' && a.status !== 'skipped' && a.status !== 'proposed',
+    );
+    if (inWeek.some((a) => new Date(a.startsAt!).getTime() <= c.now.getTime())) return;
+    const busy = this.busyFor(c, user.id);
+    const allowed = user.days?.length ? user.days : PREFERRED_DAYS;
+    const mon = parseDateKey(monday);
+    const probe = { ...user, sessionMin: 60 };
+    const rooms: DayRoom[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(mon, i);
+      const date = dateKey(d);
+      const booked = inWeek.find((a) => local(a.startsAt!) === date);
+      if (booked) {
+        // El hueco de la cita, sin contarse a sí misma.
+        const free = availableMinutes(probe, new Date(booked.startsAt!), busy, this.taken(c, user.id, booked.id));
+        rooms.push({ date, booked: true, maxMin: [60, 50, 40, 30].find((len) => len <= free) ?? 0 });
+      } else {
+        rooms.push({ date, booked: false, maxMin: allowed.includes(d.weekday) ? maxFitMinutes(user, d, c.now, busy, this.taken(c, user.id)) : 0 });
+      }
+    }
+    const decision = autoDecide(user.perWeek, rooms, []);
+    if (!decision.plan.sessions.length) return;
+    user.split = { id: decision.choice.id, sessions: decision.choice.sessions };
+    user.sessionMin = decision.sessionMin;
+    this.refocus(c, user);
+  }
+
   private assignFocus(c: Ctx, user: User, appt: Appointment) {
     this.computeFocus(c, user, appt);
     this.computeRoutine(c, user, appt);
@@ -543,7 +587,7 @@ export class Engine {
 
   // ───────────────────────── M4: MUEVE ─────────────────────────
 
-  move(c: Ctx, userId: string, apptId?: string) {
+  move(c: Ctx, userId: string, apptId?: string, opts: { afterToday?: boolean } = {}) {
     const user = this.user(c, userId);
     const appt = apptId ? this.appt(c, apptId) : this.upcoming(c, userId);
     if (!appt?.startsAt) {
@@ -569,8 +613,18 @@ export class Engine {
       }
     }
 
-    const from = new Date(Math.max(c.now.getTime(), current.getTime()));
-    const [next] = nextSlots(user, from, 1, this.taken(c, userId, appt.id), this.busyFor(c, userId));
+    let from = new Date(Math.max(c.now.getTime(), current.getTime()));
+    if (opts.afterToday) {
+      // "Hoy no puedo": el nuevo horario no puede ser hoy.
+      const t = localParts(c.now);
+      const tomorrow = addDays(t, 1);
+      from = new Date(Math.max(from.getTime(), zonedToUtc(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0).getTime()));
+    }
+    let [next] = nextSlots(user, from, 1, this.taken(c, userId, appt.id), this.busyFor(c, userId));
+    if (next && mondayOf(next) !== appt.weekOf) {
+      this.autoPlanWeek(c, user, mondayOf(next));
+      [next] = nextSlots(user, from, 1, this.taken(c, userId, appt.id), this.busyFor(c, userId));
+    }
     if (!next) {
       user.pending = { kind: 'other_hour', apptId: appt.id };
       this.emit(c, userId, { text: T.noSlotForMove() });
@@ -673,6 +727,36 @@ export class Engine {
     }
   }
 
+  private latestProposed(c: Ctx, userId: string): Appointment | undefined {
+    return Object.values(c.db.appointments)
+      .filter((a) => a.userId === userId && a.status === 'proposed')
+      .sort((x, y) => y.createdAt.localeCompare(x.createdAt))[0];
+  }
+
+  /** Pide al modelo el día y la hora que ella quiere cuando las reglas no los entienden. Nunca redacta texto. */
+  private async guessWhen(c: Ctx, user: User, text: string): Promise<Date | null> {
+    const parser = this.deps.parser;
+    if (!parser?.extractWhen) return null;
+    const p = localParts(c.now);
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const guess = await parser.extractWhen(text, {
+      weekdayName: dayName(p.weekday),
+      date: dateKey(p),
+      time: `${pad2(p.hour)}:${pad2(p.minute)}`,
+    });
+    if (!guess) return null;
+    const pref = parseHHMM(user.preferredTime);
+    const [hh, mm] = guess.time ? guess.time.split(':').map(Number) : [pref.hour, pref.minute];
+    let day = guess.date ? parseDateKey(guess.date) : p;
+    let when = zonedToUtc(day.year, day.month, day.day, hh!, mm!);
+    if (!guess.date && when.getTime() < c.now.getTime() + 3600_000) {
+      day = addDays(p, 1);
+      when = zonedToUtc(day.year, day.month, day.day, hh!, mm!);
+    }
+    const ahead = when.getTime() - c.now.getTime();
+    return ahead >= 3600_000 && ahead <= 21 * 86400_000 ? when : null;
+  }
+
   /** R4: deriva a un profesional y pausa el foco por grupos hasta que ella diga que ya lo conversó. */
   private derivePain(c: Ctx, user: User) {
     this.event(c, user.id, 'pain_derivation');
@@ -703,17 +787,32 @@ export class Engine {
       return;
     }
 
-    // Respuesta libre a una pregunta pendiente ("martes 20:30").
+    // Hora o día dicho en texto libre ("martes 20:30", "cámbiala para las 20:00"). No se re-agenda una pregunta
+    // ("¿qué músculos trabajo el lunes?") ni los mensajes de otra intención.
     const p = user.pending;
-    if (intent === 'unknown' || intent === 'other_hour') {
-      const when = parseWhen(text, c.now, user);
-      const target = p ? c.db.appointments[p.apptId] : this.upcoming(c, user.id);
-      if (when && target) {
+    const asksQuestion = /\?|^\s*(qu[eé]|cu[aá]l(es)?|cu[aá]ndo|c[oó]mo|d[oó]nde|cu[aá]nto)\b/i.test(text);
+    const placeable = intent === 'unknown' || intent === 'other_hour' || intent === 'move' || intent === 'propose';
+    const waitingHour = p?.kind === 'other_hour';
+    const target = p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
+    if (placeable && target && (!asksQuestion || waitingHour)) {
+      const lower = text.toLowerCase();
+      // "No puedo a las 19:15": la hora mencionada es la que no sirve, salvo que proponga otra ("mejor el miércoles").
+      const cantGo = intent === 'move' && !waitingHour && /\bno (pueda|puedo|podr[eé]|alcanzo|voy)\b/.test(lower);
+      const proposesOther = /\b(mejor|prefiero|podr[ií]a|pasa(la|lo|r)?|c[aá]mbial[ao]|mu[eé]vel[ao])\b|\bpara (el|las?)\b/.test(lower);
+      let when = cantGo && !proposesOther ? null : parseWhen(text, c.now, user, { requireExplicit: intent === 'move' && !waitingHour });
+      if (!when && this.deps.parser?.extractWhen && (waitingHour || intent === 'move' || intent === 'unknown') && /\d|ma[ñn]ana|hoy|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|noche|tarde|despu[eé]s/i.test(text)) {
+        when = await this.guessWhen(c, user, text);
+      }
+      if (when && when.toISOString() !== target.startsAt) {
         this.place(c, user, target, when, target.startsAt ? 'move' : 'user');
         return;
       }
-      if (p?.kind === 'other_hour') {
+      if (waitingHour && intent !== 'move') {
         this.emit(c, user.id, { text: T.otherHourUnclear() });
+        return;
+      }
+      if (intent === 'move' && /\bhoy\b/.test(lower)) {
+        this.move(c, user.id, undefined, { afterToday: true });
         return;
       }
     }
@@ -737,9 +836,15 @@ export class Engine {
         this.skipWeek(c, user.id);
         return;
       case 'routine': {
-        const next = this.upcoming(c, user.id);
-        const text = next && this.routineText(next);
-        this.emit(c, user.id, { text: text ?? T.noRoutine() });
+        // Si nombra un día ("el lunes"), responde por la cita de ese día; si no, por la próxima.
+        const asked = WEEKDAY_NAMES.findIndex((re) => re.test(text.toLowerCase()));
+        const mine = Object.values(c.db.appointments)
+          .filter((a) => a.userId === user.id && a.startsAt && (a.status === 'confirmed' || a.status === 'reminded') && new Date(a.startsAt) > c.now)
+          .sort((x, y) => x.startsAt!.localeCompare(y.startsAt!));
+        const appt = (asked >= 0 && mine.find((a) => localParts(new Date(a.startsAt!)).weekday === asked)) || mine[0];
+        const focusLine = appt ? this.focusText(appt) : undefined;
+        const reply = appt ? (this.routineText(appt) ?? (focusLine ? T.focusOnly(focusLine) : undefined)) : undefined;
+        this.emit(c, user.id, { text: reply ?? T.noRoutine() });
         return;
       }
       case 'connect': {
