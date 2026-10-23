@@ -149,7 +149,7 @@ function eventBody(appt: Appointment, user: User) {
   const start = new Date(appt.startsAt!);
   const end = new Date(start.getTime() + appt.durationMin * 60000);
   return {
-    summary: 'La Cita contigo',
+    summary: 'Tu cita contigo · gogym',
     description: `${appt.durationMin} min · ${appt.content}. Si se alarga la reunión, la movemos sin drama.`,
     location: `${appt.venue} (${user.gym})`,
     start: { dateTime: start.toISOString(), timeZone: TZ },

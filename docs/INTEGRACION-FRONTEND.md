@@ -172,11 +172,17 @@ Todas son `POST`, cuerpo opcional, y devuelven `{ appointment, replies, now }`.
 | GET | `/meta` | Zona horaria, `demoUserId`, hora actual del backend, si Telegram está activo |
 | GET | `/health` | `{ ok: true }` |
 
+### Split y foco por sesión
+
+`PATCH /users/:id/preferences { split: { id, sessions } }` guarda el split (`fullbody` 1·2·3, `upper-lower` 2·4, `ppl` 3·6, `torso-piernas-brazos` 3, `cinco-dias` 5; otra combinación responde 400 `invalid_split`). El backend corre el mismo planificador que la web (`backend/src/splits.ts` es copia literal de `frontend/src/lib/splits.ts`: si uno cambia, cambia el otro) y deja el foco en `AppointmentView.focus` al agendar o mover la cita. El recordatorio lo nombra: «Hoy toca Pull: espalda y bíceps», sin ejercicios, series ni repeticiones.
+
+R4: si Camila menciona dolor, el agente deriva a un kinesiólogo o médico deportólogo, pone `user.painPause` y quita el foco de las citas que vienen. Mientras dure, ninguna cita nueva lleva `focus`. Se retoma cuando ella escribe algo como «ya lo conversé con mi kinesiólogo» (respuesta «Retomamos: …»). Hoy el agente agenda una cita por semana, así que el foco es el que el plan asigna a ese día; las demás sesiones del split siguen siendo sugerencias de la web (fase 2).
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |
 |---|---|---|
-| PATCH | `/users/:id/preferences` | `{ gymHours?: {open,close}, window?: {start,end}, sessionMin?: 30\|40\|50\|60, perWeek?, days?: number[] }` (todo opcional, merge) → `{ user }`. Las reglas aplican a las **próximas** propuestas (captura dominical, «mueve», renegociación); una cita ya agendada no cambia. La sesión debe caber entera en `window ∩ gymHours`; si no cabe en ningún día, `weekly-capture` responde 409 `no_slots`. `perWeek > 1` se guarda pero el flujo dominical sigue agendando una cita por semana (fase 2). |
+| PATCH | `/users/:id/preferences` | `{ gymHours?: {open,close}, window?: {start,end}, sessionMin?: 30\|40\|50\|60, perWeek?, days?: number[], split?: {id, sessions} }` (todo opcional, merge) → `{ user }`. Las reglas aplican a las **próximas** propuestas (captura dominical, «mueve», renegociación); una cita ya agendada no cambia. La sesión debe caber entera en `window ∩ gymHours`; si no cabe en ningún día, `weekly-capture` responde 409 `no_slots`. `perWeek > 1` se guarda pero el flujo dominical sigue agendando una cita por semana (fase 2). |
 | POST | `/users/:id/busy` | `{ weekOf: "YYYY-MM-DD", intervals: [{start, end}] }` (ISO con zona) → `{ ok, count }`. Reemplaza los bloques ocupados de esa semana (lista vacía los borra). Solo inicio y fin, sin títulos (R2). El agente los esquiva igual que a un calendario conectado. Sirve para el plan B sin Google. |
 
 ### Google Calendar (conexión real)

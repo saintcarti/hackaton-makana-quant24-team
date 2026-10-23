@@ -51,6 +51,10 @@ export interface User {
   perWeek?: number;
   /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
   days?: number[];
+  /** Split elegido; ids: fullbody | upper-lower | ppl | torso-piernas-brazos | cinco-dias. Se cambia con PATCH /users/:id/preferences { split }. */
+  split?: { id: string; sessions: number };
+  /** R4: ISO del último mensaje de dolor. Mientras exista, las citas no llevan `focus`. Se limpia cuando ella dice que ya lo conversó con un profesional. */
+  painPause?: string;
   channel: { type: 'sim' | 'telegram'; chatId?: number };
   synthetic: boolean;
   consecutiveMoves: number;
@@ -86,6 +90,8 @@ export interface AppointmentView extends Appointment {
   /** Texto neutro listo para mostrar. 'lapsed' nunca se muestra como falta: usa este label. */
   label: 'Realizada' | 'Pasó' | 'Semana de descanso' | 'Por elegir' | 'Recordada' | 'Movida' | 'Agendada';
   wasMoved: boolean;
+  /** Foco de la sesión según el split (solo grupos, nunca ejercicios). Ausente sin split o con pausa por dolor. */
+  focus?: { dayTypeId: string; label: string; groups: string[] };
 }
 
 export interface ApiError {

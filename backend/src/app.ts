@@ -5,6 +5,7 @@ import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
 import { accessToken, withToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
+import { isValidChoice } from './splits.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
 import { addDays, localParts, mondayOf, TZ, zonedToUtc } from './time.js';
 import { apptView, calendarWeek, metrics, userAppointments, userSummary } from './views.js';
@@ -145,6 +146,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
       perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
       days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+      split: z.object({ id: z.enum(['fullbody', 'upper-lower', 'ppl', 'torso-piernas-brazos', 'cinco-dias']), sessions: z.number().int() }).optional(),
     })
     .strict();
 
@@ -157,7 +159,15 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     };
     check(prefs.gymHours);
     check(prefs.window);
-    const user = await engine.run((x) => engine.setPreferences(x, c.req.param('id'), prefs));
+    if (prefs.split && !isValidChoice(prefs.split)) {
+      throw new DomainError('invalid_split', `El split ${prefs.split.id} no admite ${prefs.split.sessions} sesiones por semana`, 400);
+    }
+    const { split, ...rest } = prefs;
+    const user = await engine.run((x) => {
+      const u = engine.setPreferences(x, c.req.param('id'), rest);
+      if (split) engine.setSplit(x, u.id, split);
+      return u;
+    });
     return c.json({ user });
   });
 

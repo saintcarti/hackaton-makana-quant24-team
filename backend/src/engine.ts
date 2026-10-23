@@ -1,11 +1,12 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { GoogleConfig, freeBusy, upsertEvent, withToken } from './google.js';
-import { Busy, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
+import { Busy, PREFERRED_DAYS, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
-import { formatSlot, formatTime, localParts, mondayOf } from './time.js';
+import { addDays, dateKey, formatSlot, formatTime, localParts, mondayOf, parseDateKey } from './time.js';
 import {
   Appointment,
   Button,
@@ -377,6 +378,53 @@ export class Engine {
     return appt;
   }
 
+  /**
+   * Foco de la cita según el split: corre el mismo planificador que la web sobre los días de esa semana
+   * (los que la usuaria marcó, más el de la cita) y toma el foco de la fecha de la cita. R4: sin foco mientras dure la pausa por dolor.
+   */
+  private assignFocus(c: Ctx, user: User, appt: Appointment) {
+    appt.focus = undefined;
+    if (!user.split || user.painPause || !appt.startsAt || !isValidChoice(user.split as SplitChoice)) return;
+    const local = (iso: string) => dateKey(localParts(new Date(iso)));
+    const day = local(appt.startsAt);
+    const monday = parseDateKey(appt.weekOf);
+    const allowed = user.days?.length ? user.days : PREFERRED_DAYS;
+    const candidates: Candidate[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(monday, i);
+      const key = dateKey(d);
+      if (key === day || allowed.includes(d.weekday)) candidates.push({ date: key, booked: key === day });
+    }
+    const fixed: FixedSession[] = [];
+    for (const a of Object.values(c.db.appointments)) {
+      if (a.userId !== user.id || a.id === appt.id || a.weekOf !== appt.weekOf || !a.startsAt || !a.focus) continue;
+      if (a.status === 'lapsed' || a.status === 'skipped') continue;
+      fixed.push({ date: local(a.startsAt), dayTypeId: a.focus.dayTypeId });
+    }
+    const hit = planSplit(user.split as SplitChoice, candidates, fixed).sessions.find((s) => s.date === day);
+    if (hit) appt.focus = { dayTypeId: hit.dayType.id, label: hit.dayType.label, groups: [...hit.dayType.groups] };
+  }
+
+  private focusText(appt: Appointment): string | undefined {
+    const dt = appt.focus && getDayType(appt.focus.dayTypeId);
+    return dt ? describeDayType(dt).replace(' · ', ': ') : undefined;
+  }
+
+  /** Guarda el split y recalcula el foco de las citas que vienen. */
+  setSplit(c: Ctx, userId: string, split: SplitChoice) {
+    const user = this.user(c, userId);
+    user.split = { id: split.id, sessions: split.sessions };
+    this.refocus(c, user);
+  }
+
+  private refocus(c: Ctx, user: User) {
+    const upcoming = Object.values(c.db.appointments)
+      .filter((a) => a.userId === user.id && a.startsAt && new Date(a.startsAt) > c.now && (a.status === 'confirmed' || a.status === 'reminded'))
+      .sort((a, b) => a.startsAt!.localeCompare(b.startsAt!));
+    for (const a of upcoming) a.focus = undefined; // se recalculan en orden, cada una respetando las anteriores
+    for (const a of upcoming) this.assignFocus(c, user, a);
+  }
+
   /** Confirma o mueve una cita a una hora concreta. */
   private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source']) {
     const wasMove = appt.startsAt != null && appt.startsAt !== when.toISOString();
@@ -385,6 +433,7 @@ export class Engine {
     appt.status = 'confirmed';
     appt.source = source;
     appt.weekOf = mondayOf(when);
+    this.assignFocus(c, user, appt);
     user.pending = null;
     c.ops.add(appt.id);
     this.event(c, user.id, wasMove ? 'moved' : 'slot_chosen', appt.id, { to: appt.startsAt });
@@ -427,6 +476,7 @@ export class Engine {
     appt.status = 'confirmed';
     appt.source = 'default';
     appt.weekOf = mondayOf(chosen);
+    this.assignFocus(c, user, appt);
     user.pending = null;
     c.ops.add(appt.id);
     this.event(c, userId, 'default_applied', appt.id, { to: appt.startsAt });
@@ -447,7 +497,7 @@ export class Engine {
     appt.status = 'reminded';
     this.event(c, userId, 'reminder_sent', appt.id);
     this.emit(c, userId, {
-      text: T.reminder(formatTime(new Date(appt.startsAt)), appt.durationMin),
+      text: T.reminder(formatTime(new Date(appt.startsAt)), appt.durationMin, this.focusText(appt)),
       buttons: [
         { label: T.btn.move, action: 'move' },
         { label: T.btn.done, action: 'done' },
@@ -588,12 +638,30 @@ export class Engine {
     }
   }
 
+  /** R4: deriva a un profesional y pausa el foco por grupos hasta que ella diga que ya lo conversó. */
+  private derivePain(c: Ctx, user: User) {
+    this.event(c, user.id, 'pain_derivation');
+    user.painPause = c.now.toISOString();
+    for (const a of Object.values(c.db.appointments)) if (a.userId === user.id && a.status !== 'done') a.focus = undefined;
+    this.emit(c, user.id, { text: T.pain() });
+  }
+
   private async handleText(c: Ctx, user: User, text: string) {
     let intent: Intent = classifyByRules(text);
 
+    if (intent === 'resume') {
+      if (user.painPause) {
+        user.painPause = undefined;
+        this.refocus(c, user);
+        this.emit(c, user.id, { text: T.resumed() });
+      } else {
+        this.emit(c, user.id, { text: T.fallback() });
+      }
+      return;
+    }
+
     if (intent === 'pain') {
-      this.event(c, user.id, 'pain_derivation');
-      this.emit(c, user.id, { text: T.pain() });
+      this.derivePain(c, user);
       return;
     }
 
@@ -615,8 +683,7 @@ export class Engine {
     if (intent === 'unknown' && this.deps.parser) {
       intent = (await this.deps.parser.classify(text)) ?? 'unknown';
       if (intent === 'pain') {
-        this.event(c, user.id, 'pain_derivation');
-        this.emit(c, user.id, { text: T.pain() });
+        this.derivePain(c, user);
         return;
       }
     }
