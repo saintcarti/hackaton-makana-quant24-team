@@ -92,6 +92,15 @@ export interface Routine {
   groups: MuscleGroup[];
 }
 
+/** Variantes del grupo: los compuestos rotan con `variant` y van antes que los de aislamiento. */
+function sequenceFor(group: MuscleGroup, variant: number): Exercise[] {
+  const all = CATALOG[group];
+  const compounds = all.filter((e) => e.compound);
+  const others = all.filter((e) => !e.compound);
+  const shift = compounds.length ? variant % compounds.length : 0;
+  return [...compounds.slice(shift), ...compounds.slice(0, shift), ...others];
+}
+
 /**
  * Arma la rutina que cabe en `minutes`. `groups` son los grupos del foco del día (todos si no hay split).
  * `variant` rota las variantes de cada grupo (p. ej. el número de semana), para que no sea siempre lo mismo.
@@ -109,9 +118,8 @@ export function buildRoutine(minutes: number, groups: MuscleGroup[], variant = 0
   const rounds = Math.max(...pool.map((g) => CATALOG[g].length));
   for (let r = 0; r < rounds; r++) {
     for (const g of pool) {
-      const options = CATALOG[g];
-      // La primera ronda arranca por la variante de la semana; las siguientes siguen en orden.
-      const e = options[(r + variant) % options.length]!;
+      const options = sequenceFor(g, variant);
+      const e = options[r % options.length]!;
       if (used.has(e.id)) continue;
       const cost = exerciseMinutes(e);
       if (spent + cost > budget) continue;

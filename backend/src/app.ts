@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
-import { accessToken, withToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
+import { accessToken, withToken, authUrl, clearDemoEvents, clearMarkedEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { isValidChoice } from './splits.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
@@ -436,6 +436,22 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
       const deleted = await withToken(g, link, x.now.getTime(), clearDemoEvents);
       link.busyCache = undefined;
+      return { deleted };
+    });
+    return c.json(out);
+  });
+
+  // Borra solo las citas que creó el agente en el calendario conectado; las reuniones de demo quedan.
+  app.post('/api/google/appointments/clear', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const { userId } = z.object({ userId: z.string() }).parse(await c.req.json());
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[userId];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      const deleted = await withToken(g, link, x.now.getTime(), (t) => clearMarkedEvents(t, 'laCita'));
+      link.busyCache = undefined;
+      for (const a of Object.values(x.db.appointments)) if (a.userId === userId) a.eventId = undefined;
       return { deleted };
     });
     return c.json(out);
