@@ -40,6 +40,21 @@ function bounds(user: User): [number, number] {
 }
 
 /**
+ * Minutos que realmente hay desde `slot`: hasta lo que dura la sesión elegida, el próximo bloque ocupado del
+ * calendario, la próxima cita y el cierre de la ventana o del gym.
+ */
+export function availableMinutes(user: User, slot: Date, busy: Busy[], taken: Date[] = []): number {
+  const s = slot.getTime();
+  let end = s + sessionMs(user);
+  for (const b of busy) if (b.end > s && b.start < end) end = Math.min(end, Math.max(s, b.start));
+  for (const t of taken) if (t.getTime() > s && t.getTime() < end) end = t.getTime();
+  const p = localParts(slot);
+  const [, hi] = bounds(user);
+  end = Math.min(end, s + (hi - (p.hour * 60 + p.minute)) * 60_000);
+  return Math.max(0, Math.floor((end - s) / 60_000));
+}
+
+/**
  * Horas de inicio probadas: la preferida y cada 30 min hacia adelante, luego el resto de la ventana cada 15 min.
  * Solo las que caben enteras dentro de la ventana ∩ horario del gym.
  */

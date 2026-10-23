@@ -2,7 +2,9 @@ import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { GoogleConfig, freeBusy, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
-import { Busy, PREFERRED_DAYS, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { buildRoutine } from './routine.js';
+import { MUSCLE_GROUPS } from './splits.js';
+import { Busy, PREFERRED_DAYS, availableMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
@@ -383,6 +385,34 @@ export class Engine {
    * (los que la usuaria marcó, más el de la cita) y toma el foco de la fecha de la cita. R4: sin foco mientras dure la pausa por dolor.
    */
   private assignFocus(c: Ctx, user: User, appt: Appointment) {
+    this.computeFocus(c, user, appt);
+    this.computeRoutine(c, user, appt);
+  }
+
+  /**
+   * Rutina con el tiempo libre real: desde la hora de la cita hasta el próximo bloque ocupado, la próxima cita
+   * o el cierre del gym, con tope en la duración elegida. Si el hueco es menor, la cita se acorta a lo que cabe.
+   * R4: con pausa por dolor no se arma rutina.
+   */
+  private computeRoutine(c: Ctx, user: User, appt: Appointment) {
+    appt.routine = undefined;
+    if (user.painPause || !appt.startsAt) return;
+    const free = availableMinutes(user, new Date(appt.startsAt), this.busyFor(c, user.id), this.taken(c, user.id, appt.id));
+    const minutes = Math.floor(free / 5) * 5;
+    const groups = (appt.focus?.groups ?? MUSCLE_GROUPS) as typeof MUSCLE_GROUPS;
+    const variant = Math.floor(Date.parse(appt.weekOf) / (7 * 86400_000));
+    const routine = buildRoutine(minutes, groups, variant);
+    if (!routine) return;
+    appt.routine = routine;
+    appt.durationMin = routine.minutes;
+  }
+
+  private routineText(appt: Appointment): string | undefined {
+    if (!appt.routine) return undefined;
+    return T.routine(appt.routine, appt.focus?.label);
+  }
+
+  private computeFocus(c: Ctx, user: User, appt: Appointment) {
     appt.focus = undefined;
     if (!user.split || user.painPause || !appt.startsAt || !isValidChoice(user.split as SplitChoice)) return;
     const local = (iso: string) => dateKey(localParts(new Date(iso)));
@@ -421,7 +451,10 @@ export class Engine {
     const upcoming = Object.values(c.db.appointments)
       .filter((a) => a.userId === user.id && a.startsAt && new Date(a.startsAt) > c.now && (a.status === 'confirmed' || a.status === 'reminded'))
       .sort((a, b) => a.startsAt!.localeCompare(b.startsAt!));
-    for (const a of upcoming) a.focus = undefined; // se recalculan en orden, cada una respetando las anteriores
+    for (const a of upcoming) {
+      a.focus = undefined;
+      a.routine = undefined;
+    } // se recalculan en orden, cada una respetando las anteriores
     for (const a of upcoming) this.assignFocus(c, user, a);
   }
 
@@ -503,6 +536,8 @@ export class Engine {
         { label: T.btn.done, action: 'done' },
       ],
     });
+    const routine = this.routineText(appt);
+    if (routine) this.emit(c, userId, { text: routine });
     return appt;
   }
 
@@ -642,7 +677,10 @@ export class Engine {
   private derivePain(c: Ctx, user: User) {
     this.event(c, user.id, 'pain_derivation');
     user.painPause = c.now.toISOString();
-    for (const a of Object.values(c.db.appointments)) if (a.userId === user.id && a.status !== 'done') a.focus = undefined;
+    for (const a of Object.values(c.db.appointments)) if (a.userId === user.id && a.status !== 'done') {
+        a.focus = undefined;
+        a.routine = undefined;
+      }
     this.emit(c, user.id, { text: T.pain() });
   }
 
@@ -698,6 +736,12 @@ export class Engine {
       case 'skip_week':
         this.skipWeek(c, user.id);
         return;
+      case 'routine': {
+        const next = this.upcoming(c, user.id);
+        const text = next && this.routineText(next);
+        this.emit(c, user.id, { text: text ?? T.noRoutine() });
+        return;
+      }
       case 'connect': {
         const b = this.connectButton(c, user);
         this.emit(c, user.id, b ? { text: T.connect(), buttons: [b] } : { text: this.google ? T.alreadyConnected() : T.calendarUnavailable() });

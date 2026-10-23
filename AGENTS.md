@@ -8,7 +8,7 @@ Proyecto: **La Cita**, Hackatón Señales (Caso 1, Camila). Antes de tocar nada,
 - Toda la integración está en [`docs/INTEGRACION-FRONTEND.md`](docs/INTEGRACION-FRONTEND.md); los tipos en [`docs/api-types.ts`](docs/api-types.ts) (cópialos a `frontend/`).
 - Arranca el backend con `cd backend && pnpm install && pnpm dev` (puerto 8787). Usa **pnpm**, nunca npm.
 - No reimplementes lógica del producto en el front: los textos, botones, horarios y el tono vienen del backend.
-- Reglas de presentación (no negociables): sin rachas, puntos ni medallas; nunca «falta» ni «fallaste»; usa `AppointmentView.label`; sin rojo para citas pasadas o movidas; sin contenido de rutinas, sin cifras del cuerpo, sin precios ni descuentos.
+- Reglas de presentación (no negociables): sin rachas, puntos ni medallas; nunca «falta» ni «fallaste»; usa `AppointmentView.label`; sin rojo para citas pasadas o movidas; sin cifras del cuerpo, sin precios ni descuentos. Las rutinas (ejercicios, series y repeticiones) sí van, pero las arma el backend según el tiempo libre del calendario (`AppointmentView.routine`): la web solo las muestra, no las inventa.
 - Si falta un campo o endpoint, no lo inventes con datos falsos: pídeselo al backend describiendo el caso de uso.
 
 ## Si eres un agente del backend
@@ -22,5 +22,5 @@ Proyecto: **La Cita**, Hackatón Señales (Caso 1, Camila). Antes de tocar nada,
 
 - R1: todo el código se escribe en el evento, en este repo.
 - R2: solo datos sintéticos; nada de datos personales reales.
-- R4: ante dolor, derivar a profesional; no prescribir ejercicio.
+- R4: ante dolor, derivar a profesional; no prescribir ejercicio (el backend no arma rutina ni foco mientras dure la pausa por dolor).
 - R6: el demo debe poder correr sin red (backend local + front apuntando a localhost).

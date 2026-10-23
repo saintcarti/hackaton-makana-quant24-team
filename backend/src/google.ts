@@ -1,3 +1,4 @@
+import { apptDescription } from './ics.js';
 import { TZ } from './time.js';
 import { Appointment, GoogleLink, User } from './types.js';
 
@@ -150,7 +151,7 @@ function eventBody(appt: Appointment, user: User) {
   const end = new Date(start.getTime() + appt.durationMin * 60000);
   return {
     summary: 'Tu cita contigo · gogym',
-    description: `${appt.durationMin} min · ${appt.content}. Si se alarga la reunión, la movemos sin drama.`,
+    description: apptDescription(appt),
     location: `${appt.venue} (${user.gym})`,
     start: { dateTime: start.toISOString(), timeZone: TZ },
     end: { dateTime: end.toISOString(), timeZone: TZ },

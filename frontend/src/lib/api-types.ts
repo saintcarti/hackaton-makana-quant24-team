@@ -92,6 +92,25 @@ export interface AppointmentView extends Appointment {
   wasMoved: boolean;
   /** Foco de la sesión según el split (solo grupos, nunca ejercicios). Ausente sin split o con pausa por dolor. */
   focus?: { dayTypeId: string; label: string; groups: string[] };
+  /** Rutina armada con el tiempo libre real de ese día (calendario conectado u ocupación informada). Ausente con pausa por dolor (R4) o si hay menos de 20 min. */
+  routine?: Routine;
+}
+
+export interface RoutineItem {
+  exerciseId: string;
+  name: string;
+  group: string;
+  sets: number;
+  /** Texto listo para mostrar: «10-12», «30 s», «10 por lado». */
+  reps: string;
+}
+
+export interface Routine {
+  /** Minutos totales de la sesión, calentamiento incluido. Es igual a `durationMin` de la cita. */
+  minutes: number;
+  warmupMin: number;
+  items: RoutineItem[];
+  groups: string[];
 }
 
 export interface ApiError {
