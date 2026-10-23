@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
-import Chat from './components/Chat';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Chat, { userLabel } from './components/Chat';
 import DemoPanel from './components/DemoPanel';
 import Login from './components/Login';
 import NextUp from './components/NextUp';
 import SixWeeks from './components/SixWeeks';
 import WeekCalendar, { type GoogleState } from './components/WeekCalendar';
 import { useMessages } from './hooks/useMessages';
-import { api, ApiError } from './lib/api';
+import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
 import type { AppointmentView, CalendarWeek, Summary, User } from './lib/api-types';
 import { addDaysISO } from './lib/format';
 import {
   fetchEvents,
   googleClientId,
+  preloadGoogle,
   signInWithGoogle,
   signOutGoogle,
   type CalendarEvent,
@@ -20,6 +21,9 @@ import {
 
 const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) || undefined;
 const SESSION_KEY = 'lacita.session';
+const RETRY_MS = 2500;
+const USERS_POLL_MS = 10_000;
+const CLOCK_TICK_MS = 30_000;
 
 function readDemoFlag() {
   try {
@@ -42,10 +46,14 @@ export default function App() {
   const [entered, setEntered] = useState(readDemoFlag);
   const [google, setGoogle] = useState<GoogleSession | null>(null);
 
+  const [demoUserId, setDemoUserId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [now, setNow] = useState<string | null>(null);
   const [simulated, setSimulated] = useState(false);
+  const clockOffset = useRef(0);
+  const [apiDown, setApiDown] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   const [weekOf, setWeekOf] = useState<string | null>(null);
   const [cal, setCal] = useState<CalendarWeek | null>(null);
@@ -59,7 +67,7 @@ export default function App() {
 
   const [view, setView] = useState<'camila' | 'equipo'>('camila');
   const [toast, setToast] = useState<string | null>(null);
-  const { messages, merge, reset: resetChat, error: chatError } = useMessages(userId);
+  const { messages, merge, reset: resetChat, error: chatError, loaded: chatLoaded } = useMessages(userId);
 
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
   const showToast = useCallback((msg: string) => {
@@ -67,26 +75,73 @@ export default function App() {
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 3800);
   }, []);
 
-  // Al entrar: quién es la usuaria demo y qué conversaciones existen (simulador + Telegram).
+  /** La hora del backend (real o simulada) avanza sola: se guarda el desfase y se proyecta entre recargas. */
+  const applyServerClock = useCallback((iso: string, isSimulated: boolean) => {
+    clockOffset.current = Date.parse(iso) - Date.now();
+    setNow(iso);
+    setSimulated(isSimulated);
+  }, []);
+
+  /** Lista de usuarias + reconciliación: si la seleccionada ya no existe (p. ej. tras un reset), vuelve a la demo. */
+  const syncUsers = useCallback((list: User[], demoId: string) => {
+    setUsers(list);
+    setUserId((cur) => (cur && list.some((u) => u.id === cur) ? cur : demoId));
+  }, []);
+
+  useEffect(preloadGoogle, []);
+
+  // Al entrar: usuaria demo, conversaciones (simulador + Telegram) y reloj. Si la API no responde, reintenta sola.
   useEffect(() => {
     if (!entered) return;
     let alive = true;
+    let timer: number | undefined;
     (async () => {
       try {
         const [meta, list] = await Promise.all([api.meta(), api.users()]);
         if (!alive) return;
-        setUserId((cur) => cur ?? meta.demoUserId);
-        setUsers(list.users);
-        setNow(meta.now);
-        setSimulated(meta.clockSimulated);
-      } catch (e) {
-        if (alive) showToast(e instanceof Error ? e.message : 'Sin conexión con la API.');
+        setDemoUserId(meta.demoUserId);
+        syncUsers(list.users, meta.demoUserId);
+        applyServerClock(meta.now, meta.clockSimulated);
+        setApiDown(false);
+      } catch {
+        if (!alive) return;
+        setApiDown(true);
+        timer = window.setTimeout(() => setRetry((r) => r + 1), RETRY_MS);
       }
     })();
     return () => {
       alive = false;
+      if (timer) window.clearTimeout(timer);
     };
-  }, [entered, refreshKey, showToast]);
+  }, [entered, refreshKey, retry, syncUsers, applyServerClock]);
+
+  // Quien le escribe al bot crea una usuaria tg_<chatId>: la lista se refresca sola para que aparezca en el selector.
+  useEffect(() => {
+    if (!entered || !demoUserId) return;
+    const t = window.setInterval(() => {
+      api
+        .users()
+        .then((l) => syncUsers(l.users, demoUserId))
+        .catch(() => undefined);
+    }, USERS_POLL_MS);
+    return () => window.clearInterval(t);
+  }, [entered, demoUserId, syncUsers]);
+
+  // Línea de «ahora» y reloj del panel: avanzan entre recargas con el desfase del backend.
+  useEffect(() => {
+    if (!entered) return;
+    const t = window.setInterval(() => {
+      setNow((cur) => (cur ? new Date(Date.now() + clockOffset.current).toISOString() : cur));
+    }, CLOCK_TICK_MS);
+    return () => window.clearInterval(t);
+  }, [entered]);
+
+  // Cuando el chat vuelve a conectar después de una caída, todo se recarga.
+  const prevChatError = useRef<string | null>(null);
+  useEffect(() => {
+    if (prevChatError.current && !chatError) bump();
+    prevChatError.current = chatError;
+  }, [chatError, bump]);
 
   // Datos de la vista: semana, resumen e historial. Se refrescan con cada mensaje o acción de demo.
   useEffect(() => {
@@ -101,22 +156,24 @@ export default function App() {
         setCal(c);
         setSummary(s);
         setAppts(a.appointments);
-        setNow(meta.now);
-        setSimulated(meta.clockSimulated);
+        applyServerClock(meta.now, meta.clockSimulated);
       } catch (e) {
-        if (alive && !(e instanceof ApiError && e.status === 0)) {
-          showToast(e instanceof Error ? e.message : 'No se pudo cargar tu semana.');
-        }
+        if (!alive) return;
+        // Una usuaria que el reset borró responde 404: la reconciliación de usuarias la saca; no hace falta avisar.
+        if (e instanceof ApiError && (e.status === 0 || e.status === 404)) return;
+        showToast(e instanceof Error ? e.message : 'No se pudo cargar tu semana.');
       }
     })();
     return () => {
       alive = false;
     };
-  }, [userId, weekOf, refreshKey, messages.length, showToast]);
+  }, [userId, weekOf, refreshKey, messages.length, showToast, applyServerClock]);
 
-  // Calendario de Google de la semana visible, leído en el navegador.
+  const isDemoUser = userId !== null && userId === demoUserId;
+
+  // Calendario de Google de la semana visible, leído en el navegador. Solo aplica a la usuaria demo (la de la sesión).
   useEffect(() => {
-    if (!google || !cal || !userId) return;
+    if (!google || !cal || !userId || !isDemoUser) return;
     let alive = true;
     setGState('loading');
     const from = new Date(`${addDaysISO(cal.weekOf, -1)}T00:00:00`);
@@ -127,7 +184,7 @@ export default function App() {
         setEvents(evs);
         setGState('on');
         setGNote(evs.length ? null : 'Sin eventos en Google esta semana');
-        // Entrega la disponibilidad al agente. Si el backend aún no tiene el endpoint, no se rompe nada.
+        // Entrega al agente solo las horas ocupadas (sin títulos). Si el backend aún no tiene el endpoint, no pasa nada.
         api
           .syncBusy(
             userId,
@@ -138,17 +195,19 @@ export default function App() {
       })
       .catch((e) => {
         if (!alive) return;
+        setEvents([]);
         setGState('error');
         setGNote(e instanceof Error ? e.message : 'No pudimos leer Google Calendar.');
       });
     return () => {
       alive = false;
     };
-  }, [google, cal?.weekOf, userId]);
+  }, [google, cal?.weekOf, userId, isDemoUser]);
 
   async function connectGoogle() {
     const g = await signInWithGoogle();
     setGoogle(g);
+    setGNote(null);
     setEntered(true);
   }
 
@@ -170,6 +229,16 @@ export default function App() {
     setGoogle(null);
     setEvents([]);
     setGState('off');
+    setGNote(null);
+    // Sin usuaria seleccionada se detiene el polling del chat y la próxima entrada parte de cero.
+    setUserId(null);
+    setDemoUserId(null);
+    setUsers([]);
+    setCal(null);
+    setSummary(null);
+    setAppts([]);
+    setWeekOf(null);
+    setView('camila');
     writeDemoFlag(false);
     setEntered(false);
   }
@@ -180,6 +249,7 @@ export default function App() {
 
   const current = users.find((u) => u.id === userId) ?? null;
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
+  const offline = apiDown || !!chatError;
 
   return (
     <>
@@ -212,12 +282,28 @@ export default function App() {
         </button>
       </header>
 
+      {offline && (
+        <div className="banner" role="alert">
+          {apiPointsToViewerMachine() ? (
+            <>
+              Esta web busca la API en <code>{getApiBase()}</code>, o sea en este mismo computador, y no responde.
+              Levanta el backend acá o pon la URL publicada en <b>Lo que ve el equipo → URL de la API</b>.
+            </>
+          ) : (
+            <>
+              No hay conexión con la API (<code>{getApiBase()}</code>). Reintentando sola cada pocos segundos.
+            </>
+          )}
+        </div>
+      )}
+
       <div className="layout">
         <div className="main-col">
-          {view === 'camila' && <NextUp summary={summary} synthetic={!!current?.synthetic} />}
+          {view === 'camila' && <NextUp summary={summary} appts={appts} now={now} synthetic={!!current?.synthetic} />}
           {view === 'equipo' && userId && (
             <DemoPanel
               userId={userId}
+              targetLabel={current ? userLabel(current) : userId}
               now={now}
               simulated={simulated}
               onDone={(opts) => {
@@ -231,12 +317,12 @@ export default function App() {
           )}
           <WeekCalendar
             cal={cal}
-            events={events}
+            events={isDemoUser ? events : []}
             now={now}
             window={current?.window ?? null}
-            google={gState}
-            googleNote={gNote}
-            canConnect={!!googleClientId}
+            google={isDemoUser ? gState : 'off'}
+            googleNote={isDemoUser ? gNote : null}
+            canConnect={!!googleClientId && isDemoUser}
             onConnect={connectFromCalendar}
             onPrev={() => cal && setWeekOf(addDaysISO(cal.weekOf, -7))}
             onNext={() => cal && setWeekOf(addDaysISO(cal.weekOf, 7))}
@@ -257,6 +343,7 @@ export default function App() {
               }}
               messages={messages}
               merge={merge}
+              loaded={chatLoaded}
               error={chatError}
               onActivity={bump}
               onError={showToast}

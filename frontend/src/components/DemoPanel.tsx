@@ -1,9 +1,17 @@
-import { useState } from 'react';
-import { api, getAdminToken, setAdminToken } from '../lib/api';
-import { fmtDay, fmtTime, capitalize } from '../lib/format';
+import { FormEvent, MouseEvent, useRef, useState } from 'react';
+import {
+  api,
+  apiBaseOverride,
+  defaultApiBase,
+  getAdminToken,
+  setAdminToken,
+  setApiBaseOverride,
+} from '../lib/api';
+import { capitalize, fmtDay, fmtTime } from '../lib/format';
 
 interface Props {
   userId: string;
+  targetLabel: string;
   now: string | null;
   simulated: boolean;
   onDone: (opts?: { resetChat?: boolean; followClock?: boolean }) => void;
@@ -19,10 +27,33 @@ interface Step {
   resetChat?: boolean;
 }
 
-export default function DemoPanel({ userId, now, simulated, onDone, onError, onInfo }: Props) {
+// Tras terminar una acción, los botones siguen bloqueados un momento: un doble clic correría el paso dos veces
+// (en «Lunes 18:30» eso salta el reloj a la semana siguiente y rompe el resto del guion).
+const COOLDOWN_MS = 700;
+
+export default function DemoPanel({ userId, targetLabel, now, simulated, onDone, onError, onInfo }: Props) {
   const [running, setRunning] = useState<string | null>(null);
+  const runningRef = useRef(false);
   const [open, setOpen] = useState(true);
   const [token, setToken] = useState(getAdminToken());
+  const [apiDraft, setApiDraft] = useState(apiBaseOverride());
+
+  async function guarded(id: string, e: MouseEvent, fn: () => Promise<unknown>, opts?: { resetChat?: boolean }) {
+    if (e.detail > 1 || runningRef.current) return;
+    runningRef.current = true;
+    setRunning(id);
+    try {
+      await fn();
+      onDone({ resetChat: opts?.resetChat, followClock: true });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Algo no respondió.');
+    } finally {
+      window.setTimeout(() => {
+        runningRef.current = false;
+        setRunning(null);
+      }, COOLDOWN_MS);
+    }
+  }
 
   const steps: Step[] = [
     {
@@ -71,7 +102,7 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
     {
       n: '4',
       label: '«Listo»',
-      detail: 'Termina la cita y fue. La mensualidad deja de ser culpa y pasa a ser uso.',
+      detail: 'Termina la cita y fue: la mensualidad ya pagada pasa a ser uso.',
       run: async () => {
         // «Listo» aplica a la cita del día: primero el reloj llega al final de la próxima cita.
         const s = await api.summary(userId);
@@ -85,26 +116,14 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
     },
   ];
 
-  async function run(step: Step) {
-    setRunning(step.n);
-    try {
-      await step.run();
-      onDone({ resetChat: step.resetChat, followClock: true });
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'Algo no respondió.');
-    } finally {
-      setRunning(null);
+  function saveApi(e: FormEvent) {
+    e.preventDefault();
+    if (!setApiBaseOverride(apiDraft)) {
+      onError('Esa URL no sirve: usa algo como https://la-cita-api.vercel.app');
+      return;
     }
-  }
-
-  async function clockReset() {
-    try {
-      await api.clock({ reset: true });
-      onDone({ followClock: true });
-      onInfo('Reloj de vuelta a la hora real.');
-    } catch (e) {
-      onError(e instanceof Error ? e.message : 'No se pudo.');
-    }
+    // Recarga para que todo (chat, semana, usuarias) se lea desde la nueva API.
+    window.location.reload();
   }
 
   return (
@@ -125,9 +144,18 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
       </div>
       {open && (
         <div className="panel-body">
+          <p className="small" style={{ margin: '0 0 0.75rem' }}>
+            Actúa sobre: <b>{targetLabel}</b>
+            <span className="muted"> · se cambia en el selector del chat. «Preparar» reinicia todo.</span>
+          </p>
           <div className="demo-steps">
             {steps.map((s) => (
-              <button key={s.n} className="step" onClick={() => run(s)} disabled={running !== null}>
+              <button
+                key={s.n}
+                className="step"
+                onClick={(e) => guarded(s.n, e, s.run, { resetChat: s.resetChat })}
+                disabled={running !== null}
+              >
                 <span className="n">{running === s.n ? '…' : s.n}</span>
                 <span className="l">{s.label}</span>
                 <span className="d">{s.detail}</span>
@@ -137,20 +165,44 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
           <div className="demo-tools">
             <button
               className="btn btn-sm"
-              onClick={async () => {
-                try {
+              disabled={running !== null}
+              onClick={(e) =>
+                guarded('advance', e, async () => {
                   await api.clock({ advanceMinutes: 151 });
                   await api.tick();
-                  onDone({ followClock: true });
-                } catch (e) {
-                  onError(e instanceof Error ? e.message : 'No se pudo.');
-                }
-              }}
+                })
+              }
             >
               Adelantar 2,5 h y correr el reloj
             </button>
-            <button className="btn btn-sm btn-quiet" onClick={clockReset}>
+            <button
+              className="btn btn-sm btn-quiet"
+              disabled={running !== null}
+              onClick={(e) =>
+                guarded('clock-reset', e, async () => {
+                  await api.clock({ reset: true });
+                  onInfo('Reloj de vuelta a la hora real.');
+                })
+              }
+            >
               Volver a la hora real
+            </button>
+          </div>
+          <form className="demo-tools" onSubmit={saveApi}>
+            <label className="small muted" htmlFor="api-base">
+              URL de la API
+            </label>
+            <input
+              id="api-base"
+              className="wide"
+              value={apiDraft}
+              placeholder={defaultApiBase}
+              onChange={(e) => setApiDraft(e.target.value)}
+              inputMode="url"
+              autoComplete="off"
+            />
+            <button className="btn btn-sm" type="submit">
+              Usar esta API
             </button>
             <span style={{ flex: 1 }} />
             <label className="small muted" htmlFor="admin-token">
@@ -166,7 +218,7 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
                 setAdminToken(e.target.value);
               }}
             />
-          </div>
+          </form>
         </div>
       )}
     </section>

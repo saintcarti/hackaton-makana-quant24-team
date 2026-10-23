@@ -19,7 +19,7 @@ export function fmtCLP(n: number) {
   return `$${new Intl.NumberFormat('es-CL').format(Math.round(n))}`;
 }
 
-/** "YYYY-MM-DD" del lunes de la semana de esa fecha, en zona local. */
+/** Suma días a una fecha "YYYY-MM-DD" (mediodía local, inmune a cambios de hora). */
 export function addDaysISO(dateISO: string, days: number) {
   const d = new Date(`${dateISO}T12:00:00`);
   d.setDate(d.getDate() + days);
@@ -27,6 +27,12 @@ export function addDaysISO(dateISO: string, days: number) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** Lunes ("YYYY-MM-DD") de la semana de una fecha "YYYY-MM-DD". */
+export function mondayOf(dateISO: string) {
+  const d = new Date(`${dateISO}T12:00:00`);
+  return addDaysISO(dateISO, -((d.getDay() + 6) % 7));
 }
 
 /** Minutos desde medianoche en Santiago, y fecha "YYYY-MM-DD" en Santiago. */

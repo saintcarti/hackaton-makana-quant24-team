@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, MouseEvent, useEffect, useRef, useState } from 'react';
 import { api, apiUrl } from '../lib/api';
 import type { Button, Message, User } from '../lib/api-types';
 import { fmtTime } from '../lib/format';
@@ -9,14 +9,17 @@ interface Props {
   onUserChange: (id: string) => void;
   messages: Message[];
   merge: (m: Message[]) => void;
+  loaded: boolean;
   error: string | null;
   onActivity: () => void;
   onError: (msg: string) => void;
   telegramBot?: string;
 }
 
-function userLabel(u: User) {
-  if (u.channel.type === 'telegram') return `Telegram · ${u.name || u.id}`;
+const msgKey = (m: Message) => `${m.n}:${m.at}`;
+
+export function userLabel(u: User) {
+  if (u.channel.type === 'telegram') return `Telegram · chat …${u.id.replace(/^tg_/, '').slice(-4)}`;
   return u.synthetic ? `${u.name} (sintética)` : u.name;
 }
 
@@ -26,6 +29,7 @@ export default function Chat({
   onUserChange,
   messages,
   merge,
+  loaded,
   error,
   onActivity,
   onError,
@@ -33,24 +37,31 @@ export default function Chat({
 }: Props) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // Teclado ya respondido en esta pestaña: queda bloqueado hasta que el eco de la respuesta llegue del servidor.
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Solo se pueden tocar los botones del último mensaje con botones, y solo si la usuaria aún no respondió.
-  const lastWithButtons = [...messages].reverse().find((m) => m.dir === 'out' && m.buttons?.length)?.n;
-  const answered = lastWithButtons !== undefined && messages.some((m) => m.dir === 'in' && m.n > lastWithButtons);
+  const lastWithButtons = [...messages].reverse().find((m) => m.dir === 'out' && m.buttons?.length);
+  const answeredOnServer =
+    lastWithButtons !== undefined && messages.some((m) => m.dir === 'in' && m.n > lastWithButtons.n);
+  const keyboardLocked =
+    busy || answeredOnServer || (lastWithButtons !== undefined && answeredKey === msgKey(lastWithButtons));
+
+  useEffect(() => setAnsweredKey(null), [userId]);
 
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
-  async function send(body: { text?: string; action?: string; label?: string }) {
+  async function send(body: { text?: string; action?: string; label?: string }, onFail?: () => void) {
     setBusy(true);
     try {
       const r = await api.send(userId, body);
       merge(r.replies);
       onActivity();
     } catch (e) {
+      onFail?.();
       onError(e instanceof Error ? e.message : 'No se pudo enviar.');
     } finally {
       setBusy(false);
@@ -62,11 +73,14 @@ export default function Chat({
     const t = text.trim();
     if (!t || busy) return;
     setText('');
-    send({ text: t });
+    send({ text: t }, () => setText(t));
   }
 
-  function tap(b: Button) {
-    if (!busy) send({ action: b.action, label: b.label });
+  function tap(e: MouseEvent, m: Message, b: Button) {
+    if (e.detail > 1 || keyboardLocked || m !== lastWithButtons) return;
+    const previous = answeredKey;
+    setAnsweredKey(msgKey(m));
+    send({ action: b.action, label: b.label }, () => setAnsweredKey(previous));
   }
 
   const current = users.find((u) => u.id === userId);
@@ -86,7 +100,7 @@ export default function Chat({
         {users.length > 1 && (
           <label>
             <span className="sr-only">Ver conversación de</span>
-            <select value={userId} onChange={(e) => onUserChange(e.target.value)}>
+            <select value={userId} onChange={(e) => onUserChange(e.target.value)} disabled={busy}>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {userLabel(u)}
@@ -97,7 +111,7 @@ export default function Chat({
         )}
       </header>
 
-      <div className="chat-log" ref={logRef} aria-live="polite">
+      <div className="chat-log" ref={logRef} role="log" aria-live={loaded ? 'polite' : 'off'}>
         {messages.length === 0 && (
           <p className="chat-empty">
             {error
@@ -106,7 +120,7 @@ export default function Chat({
           </p>
         )}
         {messages.map((m) => (
-          <div key={m.n} className={`msg ${m.dir}`}>
+          <div key={msgKey(m)} className={`msg ${m.dir}`}>
             <div className="bubble">{m.text}</div>
             {m.buttons && m.buttons.length > 0 && (
               <div className="kb">
@@ -114,8 +128,8 @@ export default function Chat({
                   <button
                     key={b.action}
                     type="button"
-                    onClick={() => tap(b)}
-                    disabled={busy || answered || m.n !== lastWithButtons}
+                    onClick={(e) => tap(e, m, b)}
+                    disabled={keyboardLocked || m !== lastWithButtons}
                   >
                     {b.label}
                   </button>
@@ -153,7 +167,10 @@ export default function Chat({
       </form>
       {telegramBot && (
         <p className="small muted" style={{ margin: 0, padding: '0 1rem 0.75rem' }}>
-          En el teléfono: <a href={`https://t.me/${telegramBot}`} target="_blank" rel="noreferrer">t.me/{telegramBot}</a>
+          En el teléfono:{' '}
+          <a href={`https://t.me/${encodeURIComponent(telegramBot)}`} target="_blank" rel="noreferrer">
+            t.me/{telegramBot}
+          </a>
         </p>
       )}
     </section>

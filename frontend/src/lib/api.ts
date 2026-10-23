@@ -10,9 +10,58 @@ import type {
   User,
 } from './api-types';
 
-const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8787').replace(/\/$/, '');
+const trimSlash = (s: string) => s.replace(/\/+$/, '');
 
-export const apiUrl = (path: string) => `${BASE}${path}`;
+export const defaultApiBase = trimSlash(
+  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8787',
+);
+
+const BASE_KEY = 'lacita.apiBase';
+
+export function apiBaseOverride(): string {
+  try {
+    return localStorage.getItem(BASE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Fija la API desde el panel del equipo (sin redeploy). Vacío vuelve a la del build. */
+export function setApiBaseOverride(url: string): boolean {
+  const clean = trimSlash(url.trim());
+  if (clean) {
+    try {
+      const u = new URL(clean);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    if (clean) localStorage.setItem(BASE_KEY, clean);
+    else localStorage.removeItem(BASE_KEY);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+export function getApiBase(): string {
+  return trimSlash(apiBaseOverride() || defaultApiBase);
+}
+
+export const apiUrl = (path: string) => `${getApiBase()}${path}`;
+
+const isLoopback = (h: string) => h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1';
+
+/** La página está publicada pero la API apunta al computador de quien la abre. */
+export function apiPointsToViewerMachine(): boolean {
+  try {
+    return isLoopback(new URL(getApiBase()).hostname) && !isLoopback(window.location.hostname);
+  } catch {
+    return false;
+  }
+}
 
 const TOKEN_KEY = 'lacita.adminToken';
 
@@ -103,6 +152,7 @@ export const api = {
     req<{ now: string; simulated: boolean }>('POST', '/demo/clock', body),
   tick: () => req<unknown>('POST', '/jobs/tick', {}),
   // Pedido al backend (frontend/PEDIDOS-BACKEND.md §1): mientras no exista, el 404 se ignora.
+  // Solo viajan inicio y fin de cada evento ocupado, nunca títulos (R2).
   syncBusy: (userId: string, weekOf: string, intervals: BusyInterval[]) =>
     req<unknown>('POST', `/users/${encodeURIComponent(userId)}/busy`, { weekOf, intervals }),
 };

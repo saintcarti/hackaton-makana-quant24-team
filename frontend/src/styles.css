@@ -9,14 +9,14 @@
   --surface-3: oklch(0.89 0.02 65);
   --text-1: oklch(0.25 0.02 65);
   --text-2: oklch(0.46 0.022 65);
-  --text-3: oklch(0.56 0.02 65);
+  --text-3: oklch(0.53 0.02 65);
   --line-subtle: oklch(0.89 0.018 65);
   --line-strong: oklch(0.78 0.024 65);
   --accent: oklch(0.56 0.13 65);
   --accent-hover: oklch(0.49 0.14 65);
   --accent-ink: oklch(0.42 0.11 65);
   --accent-subtle: oklch(0.94 0.04 65);
-  --done: oklch(0.53 0.11 145);
+  --done: oklch(0.5 0.11 145);
   --done-subtle: oklch(0.94 0.035 145);
   --busy: oklch(0.91 0.012 230);
   --busy-ink: oklch(0.45 0.03 230);
@@ -1053,6 +1053,27 @@ input {
   padding: 0 0.7rem;
   font-size: 0.85rem;
   width: 11rem;
+  max-width: 100%;
+}
+
+.demo-tools input.wide {
+  width: 17rem;
+}
+
+.banner {
+  margin: clamp(1rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) 0;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--r-control);
+  background: var(--accent-subtle);
+  color: var(--accent-ink);
+  border: 1px solid color-mix(in oklch, var(--accent) 35%, transparent);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.banner code {
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
 }
 
 .toast {
@@ -1176,5 +1197,11 @@ input {
 
   .topbar {
     gap: 0.6rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar .who {
+    display: none;
   }
 }

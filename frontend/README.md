@@ -13,6 +13,12 @@ cd ../frontend && pnpm install && pnpm dev  # web en http://localhost:5173
 
 Copia `.env.example` a `.env.local` si necesitas cambiar la URL de la API, activar Google o mostrar el enlace del bot.
 
+**Cambiar la API sin redesplegar:** en «Lo que ve el equipo» → *URL de la API*. Queda guardada en ese navegador y la página se recarga. Vacía vuelve a la del build (`VITE_API_URL`). Sirve para apuntar la web de Vercel al backend desplegado o a un túnel el día del demo.
+
+**Deploy:** desde esta carpeta, `npx vercel@latest deploy --prod --yes` (proyecto `itsbenjaxs-projects/la-cita`, https://la-cita-nine.vercel.app). `VITE_API_URL` se inyecta al compilar: si cambia, hay que redesplegar.
+
+**Plan B sin red (R6):** backend local (`pnpm start` en `backend/`) y esta web local (`pnpm build && pnpm preview`). Las fuentes van empaquetadas; Google es lo único que necesita internet.
+
 ## Qué hay
 
 | Archivo | Qué hace |

@@ -4,41 +4,55 @@ import type { Message } from '../lib/api-types';
 
 const POLL_MS = 1500;
 
-/** Log de mensajes de una usuaria: carga inicial + polling con ?after=, deduplicado por n. */
+const same = (a: Message, b: Message) => a.n === b.n && a.id === b.id && a.at === b.at;
+
+/**
+ * El log del servidor manda. Un reset del demo o un reinicio de la API reinician la numeración (n vuelve a 1),
+ * así que no se usa un cursor ?after= que solo crece: se trae el log completo de la usuaria (decenas de mensajes)
+ * y se reemplaza el estado cuando difiere.
+ */
+function reconcile(prev: Message[], server: Message[]): Message[] {
+  if (prev.length === server.length && prev.every((m, i) => same(m, server[i]))) return prev;
+  // Servidor "atrasado": su log es un prefijo del nuestro (respuestas del POST ya mostradas). Se espera al próximo.
+  if (server.length > 0 && server.length < prev.length && server.every((m, i) => same(m, prev[i]))) return prev;
+  return server;
+}
+
 export function useMessages(userId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
-  // Cursor del polling: solo lo avanza el propio polling. Si lo avanzaran las respuestas del POST,
-  // el mensaje entrante de la usuaria (n menor que las respuestas) quedaría salteado.
-  const lastN = useRef(0);
+  const [loaded, setLoaded] = useState(false);
+  const currentUser = useRef(userId);
 
+  /** Muestra al tiro las respuestas de un POST, solo si son de la usuaria que se está mirando. */
   const merge = useCallback((incoming: Message[]) => {
-    if (!incoming.length) return;
+    const mine = incoming.filter((m) => m.userId === currentUser.current);
+    if (!mine.length) return;
     setMessages((prev) => {
       const seen = new Set(prev.map((m) => m.n));
-      const fresh = incoming.filter((m) => !seen.has(m.n));
+      const fresh = mine.filter((m) => !seen.has(m.n));
       if (!fresh.length) return prev;
       return [...prev, ...fresh].sort((a, b) => a.n - b.n);
     });
   }, []);
 
-  const reset = useCallback(() => {
-    lastN.current = 0;
-    setMessages([]);
-  }, []);
+  const reset = useCallback(() => setMessages([]), []);
 
   useEffect(() => {
+    currentUser.current = userId;
+    setMessages([]);
+    setLoaded(false);
+    setError(null);
     if (!userId) return;
     let alive = true;
-    lastN.current = 0;
-    setMessages([]);
 
     const load = async () => {
       try {
-        const r = await api.messages(userId, lastN.current || undefined);
+        const r = await api.messages(userId);
         if (!alive) return;
-        if (r.messages.length) lastN.current = Math.max(lastN.current, ...r.messages.map((m) => m.n));
-        merge(r.messages);
+        const server = r.messages.filter((m) => m.userId === userId).sort((a, b) => a.n - b.n);
+        setMessages((prev) => reconcile(prev, server));
+        setLoaded(true);
         setError(null);
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : 'Sin conexión');
@@ -46,12 +60,12 @@ export function useMessages(userId: string | null) {
     };
 
     load();
-    const t = setInterval(load, POLL_MS);
+    const t = window.setInterval(load, POLL_MS);
     return () => {
       alive = false;
-      clearInterval(t);
+      window.clearInterval(t);
     };
-  }, [userId, merge]);
+  }, [userId]);
 
-  return { messages, merge, reset, error };
+  return { messages, merge, reset, error, loaded };
 }

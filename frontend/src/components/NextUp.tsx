@@ -1,19 +1,39 @@
-import type { Summary } from '../lib/api-types';
-import { capitalize, fmtCLP, fmtDay, fmtTime } from '../lib/format';
+import type { AppointmentView, Summary } from '../lib/api-types';
+import { capitalize, fmtCLP, fmtDay, fmtTime, mondayOf, santiagoParts } from '../lib/format';
 
-export default function NextUp({ summary, synthetic }: { summary: Summary | null; synthetic: boolean }) {
-  const next = summary?.nextAppointment;
+interface Props {
+  summary: Summary | null;
+  appts: AppointmentView[];
+  now: string | null;
+  synthetic: boolean;
+}
+
+export default function NextUp({ summary, appts, now, synthetic }: Props) {
+  const next = summary?.nextAppointment ?? null;
+  // Sin próxima cita, se muestra la de esta semana tal cual (p. ej. «Realizada» tras el «listo»), sin suponer nada.
+  const thisWeek =
+    !next && now
+      ? appts
+          .filter((a) => a.startsAt && a.weekOf === mondayOf(santiagoParts(new Date(now)).date))
+          .sort((a, b) => (b.startsAt ?? '').localeCompare(a.startsAt ?? ''))[0] ?? null
+      : null;
+  const shown = next ?? thisWeek;
+
   return (
-    <section className="panel next" aria-label="Tu próxima cita">
+    <section className="panel next" aria-label="Tu cita contigo">
       <div>
-        <div className="eyebrow">Tu próxima cita contigo</div>
-        {next?.startsAt ? (
+        <div className="eyebrow">{next || !thisWeek ? 'Tu próxima cita contigo' : 'Tu cita de esta semana'}</div>
+        {!summary ? (
+          <p className="display next-day" style={{ marginTop: '0.75rem' }}>
+            Cargando…
+          </p>
+        ) : shown?.startsAt ? (
           <>
-            <p className="display next-time">{fmtTime(next.startsAt)}</p>
-            <p className="display next-day">{capitalize(fmtDay(next.startsAt))}</p>
-            <p className="small muted" style={{ margin: '0.4rem 0 0' }}>
-              {next.durationMin} min · {next.venue}
-              {next.wasMoved ? ' · la moviste y está bien' : ''}
+            <p className="display next-time">{fmtTime(shown.startsAt)}</p>
+            <p className="display next-day">{capitalize(fmtDay(shown.startsAt))}</p>
+            <p className="small muted" style={{ margin: '0.4rem 0 0', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className={`chip${shown.status === 'done' ? '' : ' chip-accent'}`}>{shown.label}</span>
+              {shown.durationMin} min · {shown.venue}
             </p>
           </>
         ) : (
@@ -21,7 +41,7 @@ export default function NextUp({ summary, synthetic }: { summary: Summary | null
             <p className="display next-time" style={{ color: 'var(--text-2)' }}>
               —
             </p>
-            <p className="next-day display">Sin hora elegida esta semana</p>
+            <p className="next-day display">Esta semana todavía no hay cita</p>
             <p className="small muted" style={{ margin: '0.4rem 0 0' }}>
               El domingo a las 20:00 te escribimos con dos horarios que te calzan.
             </p>

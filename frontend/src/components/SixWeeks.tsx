@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AppointmentView } from '../lib/api-types';
-import { addDaysISO, santiagoParts } from '../lib/format';
+import { addDaysISO, mondayOf, santiagoParts } from '../lib/format';
 
 const DAYS = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const STEP_MS = 900;
-
-function mondayOf(dateISO: string) {
-  const d = new Date(`${dateISO}T12:00:00`);
-  return addDaysISO(dateISO, -((d.getDay() + 6) % 7));
-}
 
 function weekdayIndex(iso: string) {
   const { date } = santiagoParts(new Date(iso));
@@ -146,10 +141,13 @@ export default function SixWeeks({ appts, now }: { appts: AppointmentView[]; now
 
       <div className="vu">
         <div className="vu-figure">
-          <b className="display" aria-live="polite">
+          <b className="display" aria-hidden="true">
             {fmtRate(rate)}
           </b>
           <span>visitas por semana, promedio acumulado</span>
+          <span className="sr-only" aria-live="polite">
+            {playing ? '' : `${fmtRate(lastRate)} visitas por semana, promedio acumulado`}
+          </span>
         </div>
         <p className="vu-line">
           {totals.visits} visitas en {totals.weeks} {totals.weeks === 1 ? 'semana' : 'semanas'} · {totals.moves}{' '}

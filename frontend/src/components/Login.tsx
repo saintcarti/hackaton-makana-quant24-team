@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { googleClientId } from '../lib/google';
+import { useEffect, useState } from 'react';
+import { googleClientId, preloadGoogle } from '../lib/google';
 
 interface Props {
   onGoogle: () => Promise<void>;
@@ -10,6 +10,8 @@ interface Props {
 export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(preloadGoogle, []);
 
   async function google() {
     setBusy(true);
@@ -74,8 +76,7 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
         </div>
         {!googleClientId && (
           <div className="notice">
-            Google aún no está configurado en este despliegue (falta <code>VITE_GOOGLE_CLIENT_ID</code>). La demo
-            con Camila sintética funciona igual.
+            Google todavía no está configurado en este despliegue. La demo con Camila sintética funciona igual.
           </div>
         )}
         {error && (
@@ -84,8 +85,9 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
           </div>
         )}
         <p className="fineprint">
-          Solo pedimos permiso de lectura. Tu calendario se lee en este navegador y se olvida al cerrar la pestaña:
-          no lo guardamos. Para el demo usa una cuenta de Google sintética.
+          Solo pedimos permiso de lectura. Tu calendario se lee en este navegador; al agente solo le pasamos tus
+          horas ocupadas, sin títulos, para que no te proponga horarios que choquen. Para el demo usa una cuenta de
+          Google sintética.
           {telegramBot && (
             <>
               {' '}

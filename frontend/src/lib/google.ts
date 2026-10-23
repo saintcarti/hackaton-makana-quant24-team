@@ -17,6 +17,7 @@ interface GoogleOAuth {
         error_callback?: (e: { type: string }) => void;
       }): { requestAccessToken(opts?: { prompt?: string }): void };
       revoke(token: string, done?: () => void): void;
+      hasGrantedAllScopes(r: TokenResponse, ...scopes: string[]): boolean;
     };
   };
 }
@@ -27,12 +28,8 @@ declare global {
   }
 }
 
-const SCOPES = [
-  'openid',
-  'email',
-  'profile',
-  'https://www.googleapis.com/auth/calendar.readonly',
-].join(' ');
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const SCOPES = ['openid', 'email', 'profile', CALENDAR_SCOPE].join(' ');
 
 export const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '';
 
@@ -55,6 +52,16 @@ function loadGis(): Promise<void> {
   return gisPromise;
 }
 
+/** Precarga GIS para que el clic abra la ventana de Google sin esperar la descarga (si no, el navegador la bloquea). */
+export function preloadGoogle() {
+  if (googleClientId) loadGis().catch(() => undefined);
+}
+
+const POPUP_ERRORS: Record<string, string> = {
+  popup_closed: 'Cerraste la ventana de Google.',
+  popup_failed_to_open: 'Tu navegador bloqueó la ventana de Google: permite ventanas emergentes y vuelve a intentar.',
+};
+
 export interface GoogleSession {
   accessToken: string;
   expiresAt: number;
@@ -67,12 +74,18 @@ export async function signInWithGoogle(): Promise<GoogleSession> {
   if (!googleClientId) throw new Error('Falta VITE_GOOGLE_CLIENT_ID.');
   await loadGis();
   const token = await new Promise<TokenResponse>((resolve, reject) => {
-    const client = window.google!.accounts.oauth2.initTokenClient({
+    const oauth = window.google!.accounts.oauth2;
+    const client = oauth.initTokenClient({
       client_id: googleClientId,
       scope: SCOPES,
-      callback: (r) => (r.error || !r.access_token ? reject(new Error(r.error ?? 'Sin token')) : resolve(r)),
-      error_callback: (e) =>
-        reject(new Error(e.type === 'popup_closed' ? 'Cerraste la ventana de Google.' : 'Google no respondió.')),
+      callback: (r) => {
+        if (r.error || !r.access_token) return reject(new Error('Google no entregó el permiso.'));
+        if (!oauth.hasGrantedAllScopes(r, CALENDAR_SCOPE)) {
+          return reject(new Error('Google no dio permiso para leer tu calendario: vuelve a entrar y marca esa casilla.'));
+        }
+        resolve(r);
+      },
+      error_callback: (e) => reject(new Error(POPUP_ERRORS[e.type] ?? 'Google no respondió.')),
     });
     client.requestAccessToken({ prompt: '' });
   });
