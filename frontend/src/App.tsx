@@ -24,6 +24,7 @@ import {
 } from './lib/google';
 import { clearPrefsLocal, loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
 import { SAMPLE_LABEL, sampleWorkWeek } from './lib/sampleCalendar';
+import { applyTheme, saveTheme, type Theme } from './lib/theme';
 
 const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) || undefined;
 const SESSION_KEY = 'lacita.session';
@@ -112,6 +113,16 @@ export default function App() {
   // La barra es transparente arriba y se «materializa» cuando hay contenido pasando por debajo (Apple: scroll edge).
   const [scrolled, setScrolled] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  );
+
+  function toggleTheme() {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    saveTheme(next);
+    setTheme(next);
+  }
   const {
     messages,
     merge,
@@ -474,6 +485,23 @@ export default function App() {
           )}
           <span className="hide-sm">{google?.name ?? current?.name ?? 'Camila'}</span>
         </div>
+        <button
+          className="btn btn-quiet btn-sm icon-btn"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          title={theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+        >
+          {theme === 'dark' ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />
+            </svg>
+          )}
+        </button>
         <button className="btn btn-quiet btn-sm" onClick={signOut}>
           Salir
         </button>

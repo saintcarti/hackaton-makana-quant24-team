@@ -27,6 +27,11 @@
   --busy-ink: oklch(0.42 0.03 230);
   --on-accent: oklch(0.99 0.006 65);
   --seg-thumb: var(--surface-0);
+  --seg-track: oklch(0.25 0.02 65 / 0.13);
+  /* Texto secundario apoyado directo sobre el cielo (sin tarjeta): más oscuro que text-2 para pasar APCA. */
+  --on-sky-2: oklch(0.28 0.03 55);
+  /* Borde de campos y chips sin elegir: ≥3:1 contra la superficie (el relleno solo no los define). Medido. */
+  --line-input: oklch(0.25 0.02 65 / 0.58);
 
   /* Cielo de las 19:00 en Santiago: arena → ámbar → terracota (sin púrpura ni azul, P-01). */
   --sky: linear-gradient(
@@ -65,8 +70,8 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+/* Modo oscuro por elección (botón de la barra o ?tema=oscuro), no por el sistema: ver src/lib/theme.ts. */
+:root[data-theme='dark'] {
     color-scheme: dark;
     --surface-0: oklch(0.21 0.012 60);
     --surface-1: oklch(0.25 0.014 60);
@@ -102,19 +107,23 @@
     --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.08);
     --e2: 0 8px 22px oklch(0.05 0.01 50 / 0.35), 0 1px 3px oklch(0.05 0.01 50 / 0.3);
     --e3: 0 22px 56px oklch(0.05 0.01 50 / 0.5), 0 2px 8px oklch(0.05 0.01 50 / 0.35);
-  }
+    --on-sky-2: oklch(0.86 0.02 65);
+    --line-input: oklch(0.95 0.01 65 / 0.5);
+    --seg-track: oklch(0.95 0.01 65 / 0.1);
 }
 
 /* Respaldo (Apple §14): sin backdrop-filter, menos transparencia o más contraste → superficies sólidas. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root {
+  :root,
+  :root[data-theme] {
     --mat-chrome: var(--surface-0);
     --mat-sheet: var(--surface-0);
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  :root {
+  :root,
+  :root[data-theme] {
     --mat-chrome: var(--surface-0);
     --mat-sheet: var(--surface-0);
     --mat-thick: var(--surface-0);
@@ -124,7 +133,8 @@
 }
 
 @media (prefers-contrast: more) {
-  :root {
+  :root,
+  :root[data-theme] {
     --mat-chrome: var(--surface-0);
     --mat-sheet: var(--surface-0);
     --mat-thick: var(--surface-0);
@@ -193,7 +203,7 @@ select {
 }
 
 .eyebrow {
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-2);
@@ -212,6 +222,35 @@ select {
   font-size: 0.8125rem;
   color: var(--text-2);
   line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+
+/* Botón de solo ícono (tema): área táctil cuadrada de 44px. */
+.btn.icon-btn {
+  min-width: 44px;
+  padding: 0;
+}
+
+/* Área táctil mínima de 44px sin agrandar el dibujo (Apple: hit area ≥ 44pt). */
+.btn-sm,
+.seg button,
+.kb button,
+.chip-btn {
+  position: relative;
+}
+
+.btn-sm::after,
+.kb button::after,
+.chip-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px -2px;
+}
+
+.seg button::after {
+  content: '';
+  position: absolute;
+  inset: -5px 0;
 }
 
 .scroll-sentinel {
@@ -289,8 +328,9 @@ select {
   gap: 0.35rem;
   border-radius: var(--r-pill);
   padding: 0.2rem 0.65rem;
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   font-weight: 600;
+  letter-spacing: 0.01em;
   background: var(--fill);
   color: var(--text-2);
   white-space: nowrap;
@@ -350,7 +390,13 @@ select {
   display: grid;
   gap: 0.35rem;
   font-size: 0.95rem;
-  color: var(--text-2);
+  color: var(--on-sky-2);
+}
+
+/* Lo que va directo sobre el cielo (sin tarjeta) usa el secundario más oscuro: el terracota baja el contraste. */
+.login-story .eyebrow,
+.login-story .fineprint {
+  color: var(--on-sky-2);
 }
 
 .login-week li {
@@ -453,16 +499,14 @@ select {
   font-size: 0.85rem;
 }
 
+/* Riel sólido, sin vidrio propio: la barra ya pone el material (vidrio claro sobre vidrio claro no se lee). */
 .seg {
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   padding: 3px;
   border-radius: var(--r-pill);
-  background: var(--mat-chrome);
-  -webkit-backdrop-filter: var(--mat-chrome-filter);
-  backdrop-filter: var(--mat-chrome-filter);
-  border: 1px solid var(--glass-border);
+  background: var(--seg-track);
   isolation: isolate;
 }
 
@@ -477,8 +521,8 @@ select {
   border-radius: var(--r-pill);
   background: var(--seg-thumb);
   box-shadow:
-    0 1px 3px oklch(0.3 0.04 55 / 0.18),
-    0 0 0 0.5px oklch(0.3 0.04 55 / 0.08);
+    0 0 0 1px var(--line-input),
+    0 1px 4px oklch(0.3 0.04 55 / 0.25);
   transition: transform 360ms var(--ease-sheet);
   z-index: -1;
 }
@@ -488,12 +532,13 @@ select {
 }
 
 .seg button {
+  position: relative;
   border: 0;
   background: transparent;
   border-radius: var(--r-pill);
   padding: 0.35rem 0.95rem;
   min-height: 34px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   font-weight: 600;
   color: var(--text-2);
   cursor: pointer;
@@ -501,8 +546,10 @@ select {
   transition: color 200ms ease;
 }
 
+/* El estado elegido usa un segundo canal además del pulgar: peso y color (se lee en el proyector). */
 .seg button[aria-pressed='true'] {
-  color: var(--text-1);
+  color: var(--accent-ink);
+  font-weight: 700;
 }
 
 /* ── Página ──────────────────────────────────────────────── */
@@ -656,7 +703,7 @@ select {
 }
 
 .cal-dayhead .wd {
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-2);
@@ -675,6 +722,10 @@ select {
   font-weight: 600;
 }
 
+.cal-dayhead.today {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
 .cal-hours {
   position: relative;
 }
@@ -683,8 +734,9 @@ select {
   position: absolute;
   right: 0.5rem;
   transform: translateY(-50%);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -695,32 +747,42 @@ select {
 }
 
 .cal-col.today {
-  background: color-mix(in oklch, var(--accent-subtle) 40%, transparent);
+  background: color-mix(in oklch, var(--accent-subtle) 70%, transparent);
 }
 
 .cal-line {
   position: absolute;
   left: 0;
   right: 0;
-  border-top: 1px dashed var(--line-subtle);
+  border-top: 1px dashed var(--line-strong);
 }
 
+/* La ventana y el gym cerrado son el argumento de por qué la sesión cabe ahí: tienen que verse en un proyector.
+   Los bordes de acento dan el contraste ≥3:1; el tinte solo acompaña. */
 .cal-window {
   position: absolute;
   left: 0;
   right: 0;
-  background: repeating-linear-gradient(
-    135deg,
-    transparent 0 7px,
-    color-mix(in oklch, var(--accent) 8%, transparent) 7px 8px
-  );
+  background: color-mix(in oklch, var(--accent) 13%, transparent);
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
 }
 
+/* El borde punteado marca la hora de apertura o cierre y es el que da el contraste ≥3:1; el rayado acompaña.
+   (La franja de antes de abrir tiene su borde de arriba en el tope de la grilla, donde no molesta.) */
 .cal-closed {
   position: absolute;
   left: 0;
   right: 0;
-  background: color-mix(in oklch, var(--surface-3) 50%, transparent);
+  background:
+    repeating-linear-gradient(
+      45deg,
+      color-mix(in oklch, var(--text-1) 20%, transparent) 0 2px,
+      transparent 2px 9px
+    ),
+    var(--surface-2);
+  border-top: 2px dashed var(--text-2);
+  border-bottom: 2px dashed var(--text-2);
 }
 
 .cal-now {
@@ -748,7 +810,8 @@ select {
   right: 4px;
   border-radius: 9px;
   padding: 0.2rem 0.4rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
   line-height: 1.25;
   overflow: hidden;
 }
@@ -838,8 +901,10 @@ select {
 }
 
 .sw-window {
-  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--accent) 3px 4px);
-  opacity: 0.5;
+  background: color-mix(in oklch, var(--accent) 13%, transparent);
+  border-top: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 2px;
 }
 
 .sw-suggest {
@@ -847,8 +912,13 @@ select {
   background: var(--accent-subtle);
 }
 
+/* Igual que la franja de la grilla: rayado + borde punteado arriba y abajo. */
 .sw-closed {
-  background: var(--surface-3);
+  background:
+    repeating-linear-gradient(45deg, color-mix(in oklch, var(--text-1) 20%, transparent) 0 2px, transparent 2px 5px),
+    var(--surface-2);
+  border-top: 2px dashed var(--text-2);
+  border-bottom: 2px dashed var(--text-2);
 }
 
 /* ── Sesión que cabe ─────────────────────────────────────── */
@@ -885,6 +955,7 @@ select {
   border-radius: var(--r-pill);
   border: 0;
   background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-input);
   font-weight: 600;
   font-size: 0.9rem;
   cursor: pointer;
@@ -905,6 +976,7 @@ select {
 .chip-btn[aria-pressed='true'] {
   background: var(--accent);
   color: var(--on-accent);
+  box-shadow: none;
 }
 
 .chip-btn.day {
@@ -931,7 +1003,7 @@ select {
 .setup-grid legend {
   padding: 0;
   margin-bottom: 0.45rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-2);
@@ -949,10 +1021,11 @@ select {
 }
 
 .time-pair input {
-  min-height: 42px;
+  min-height: 44px;
   border-radius: var(--r-control);
   border: 0;
   background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-input);
   padding: 0 0.7rem;
   font-size: 16px;
   font-variant-numeric: tabular-nums;
@@ -1237,7 +1310,7 @@ select {
 }
 
 .wk-head {
-  font-size: 0.74rem;
+  font-size: 0.8125rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-2);
@@ -1264,7 +1337,7 @@ select {
   display: block;
   font-style: normal;
   font-weight: 500;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   color: var(--accent-ink);
 }
 
@@ -1288,7 +1361,7 @@ select {
   display: grid;
   border-radius: 8px;
   padding: 0.15rem 0.35rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   text-align: center;
   line-height: 1.3;
@@ -1298,7 +1371,7 @@ select {
 
 .wk-chip small {
   font-weight: 500;
-  font-size: 0.68rem;
+  font-size: 0.8125rem;
 }
 
 .wk-chip.done {
@@ -1349,18 +1422,19 @@ select {
   color: var(--on-accent);
   display: grid;
   place-items: center;
-  font-family: var(--font-num);
-  font-weight: 600;
-  font-size: 1.1rem;
+  font-weight: 700;
+  font-size: 1.05rem;
   flex: none;
 }
 
 .chat-head select {
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.8125rem;
+  min-height: 44px;
   border: 0;
   border-radius: var(--r-control);
   background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-input);
   padding: 0.3rem 0.5rem;
   max-width: 11rem;
 }
@@ -1451,7 +1525,8 @@ select {
 }
 
 .msg time {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
   color: var(--text-2);
   padding: 0 0.35rem;
 }
@@ -1533,6 +1608,7 @@ select {
   border-radius: var(--r-pill);
   border: 0;
   background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-input);
   padding: 0 1rem;
   font-size: 16px;
 }
@@ -1618,6 +1694,7 @@ select {
   border-radius: var(--r-control);
   border: 0;
   background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line-input);
   padding: 0 0.75rem;
   font-size: 0.875rem;
   width: 11rem;
