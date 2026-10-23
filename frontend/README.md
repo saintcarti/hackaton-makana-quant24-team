@@ -1,6 +1,6 @@
 # Frontend
 
-Carpeta de Benjamin Caldera. Aquí vive todo el frontend de La Cita.
+Carpeta de Benjamin Caldera. **Se trabaja en la rama `frontend`** (`git switch frontend`); `main` es del backend y de la integración. Aquí vive todo el frontend de La Cita.
 
 Antes de empezar, lee `../docs/INTEGRACION-FRONTEND.md` y copia `../docs/api-types.ts` a tu proyecto. Para levantar la API local: `cd ../backend && pnpm install && pnpm dev` (puerto 8787).
 

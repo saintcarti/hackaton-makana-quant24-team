@@ -4,7 +4,7 @@ Proyecto: **La Cita**, Hackatón Señales (Caso 1, Camila). Antes de tocar nada,
 
 ## Si eres un agente del frontend (Benjamin)
 
-- Trabajas **solo en `frontend/`**. No edites `backend/` ni `docs/`.
+- Trabajas en la rama **`frontend`** (`git switch frontend`), **solo en `frontend/`**. No edites `backend/` ni `docs/`. Para traer lo último del backend y los docs: `git fetch && git merge origin/main`.
 - Toda la integración está en [`docs/INTEGRACION-FRONTEND.md`](docs/INTEGRACION-FRONTEND.md); los tipos en [`docs/api-types.ts`](docs/api-types.ts) (cópialos a `frontend/`).
 - Arranca el backend con `cd backend && pnpm install && pnpm dev` (puerto 8787). Usa **pnpm**, nunca npm.
 - No reimplementes lógica del producto en el front: los textos, botones, horarios y el tono vienen del backend.
