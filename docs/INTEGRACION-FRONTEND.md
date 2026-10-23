@@ -123,6 +123,9 @@ Hazlo con un botón visible en el panel de demo. No finjas automatización: en p
 ```ts
 await post(`/api/users/${id}/messages`, { text: 'hoy no puedo, se alargó la reunión' });
 // «Hecho, la moví al miércoles 28 a las 19:15. Mover no es fallar.» + nuevo .ics
+// «Listo» solo aplica a una cita cercana (±36 h). Como la cita se movió al miércoles, adelanta antes el reloj
+// hasta después de esa cita (la hora exacta sale de `appointment.startsAt` + 1 h):
+await post('/api/demo/clock', { now: appointment.startsAt /* + 1 h, en ISO */ });
 await post(`/api/users/${id}/messages`, { action: 'done' });
 // «Listo. Tu mensualidad ya estaba pagada: hoy recuperaste $11.633 de los $34.900.»
 ```
