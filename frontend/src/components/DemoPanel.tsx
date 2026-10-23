@@ -63,6 +63,12 @@ export default function DemoPanel({ userId, now, simulated, onDone, onError, onI
       run: () => api.send(userId, { text: 'hoy no puedo, se alargó la reunión' }),
     },
     {
+      n: '3b',
+      label: '«Me duele la espalda»',
+      detail: 'R4: no receta ejercicio, deriva a kinesiólogo. La cita queda.',
+      run: () => api.send(userId, { text: 'y ahora que lo pienso, me duele la espalda' }),
+    },
+    {
       n: '4',
       label: '«Listo»',
       detail: 'Termina la cita y fue. La mensualidad deja de ser culpa y pasa a ser uso.',

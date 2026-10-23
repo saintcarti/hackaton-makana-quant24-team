@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Chat from './components/Chat';
 import DemoPanel from './components/DemoPanel';
 import Login from './components/Login';
-import { History, NextUp } from './components/NextUp';
+import NextUp from './components/NextUp';
+import SixWeeks from './components/SixWeeks';
 import WeekCalendar, { type GoogleState } from './components/WeekCalendar';
 import { useMessages } from './hooks/useMessages';
 import { api, ApiError } from './lib/api';
@@ -56,6 +57,7 @@ export default function App() {
   const [gState, setGState] = useState<GoogleState>('off');
   const [gNote, setGNote] = useState<string | null>(null);
 
+  const [view, setView] = useState<'camila' | 'equipo'>('camila');
   const [toast, setToast] = useState<string | null>(null);
   const { messages, merge, reset: resetChat, error: chatError } = useMessages(userId);
 
@@ -183,6 +185,16 @@ export default function App() {
     <>
       <header className="topbar">
         <span className="brand">La Cita</span>
+        <div className="seg" role="group" aria-label="Vista">
+          <button aria-pressed={view === 'camila'} onClick={() => setView('camila')}>
+            <span className="hide-sm">Lo que ve Camila</span>
+            <span className="show-sm">Camila</span>
+          </button>
+          <button aria-pressed={view === 'equipo'} onClick={() => setView('equipo')}>
+            <span className="hide-sm">Lo que ve el equipo</span>
+            <span className="show-sm">Equipo</span>
+          </button>
+        </div>
         {current?.synthetic && <span className="chip hide-sm">Datos de {current.name} sintética</span>}
         <span className="spacer" />
         <div className="who">
@@ -202,7 +214,21 @@ export default function App() {
 
       <div className="layout">
         <div className="main-col">
-          <NextUp summary={summary} synthetic={!!current?.synthetic} />
+          {view === 'camila' && <NextUp summary={summary} synthetic={!!current?.synthetic} />}
+          {view === 'equipo' && userId && (
+            <DemoPanel
+              userId={userId}
+              now={now}
+              simulated={simulated}
+              onDone={(opts) => {
+                if (opts?.resetChat) resetChat();
+                if (opts?.followClock) setWeekOf(null);
+                bump();
+              }}
+              onError={showToast}
+              onInfo={showToast}
+            />
+          )}
           <WeekCalendar
             cal={cal}
             events={events}
@@ -217,21 +243,7 @@ export default function App() {
             onToday={() => setWeekOf(null)}
             isCurrentWeek={weekOf === null || weekOf === summary?.nextAppointment?.weekOf}
           />
-          {userId && (
-            <DemoPanel
-              userId={userId}
-              now={now}
-              simulated={simulated}
-              onDone={(opts) => {
-                if (opts?.resetChat) resetChat();
-                if (opts?.followClock) setWeekOf(null);
-                bump();
-              }}
-              onError={showToast}
-              onInfo={showToast}
-            />
-          )}
-          <History items={appts} />
+          {view === 'equipo' && <SixWeeks appts={appts} now={now} />}
         </div>
 
         <aside className="side-col">

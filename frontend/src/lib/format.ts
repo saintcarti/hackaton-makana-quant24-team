@@ -15,12 +15,6 @@ export function fmtDay(iso: string) {
   );
 }
 
-export function fmtShortDate(iso: string) {
-  return new Intl.DateTimeFormat('es-CL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ }).format(
-    new Date(iso),
-  );
-}
-
 export function fmtCLP(n: number) {
   return `$${new Intl.NumberFormat('es-CL').format(Math.round(n))}`;
 }
