@@ -1,3 +1,5 @@
+import type { Routine } from './routine.js';
+
 export type ChannelKind = 'sim' | 'telegram';
 
 export interface User {
@@ -71,6 +73,8 @@ export interface Appointment {
   eventId?: string;
   /** Foco de la sesión según el split de la usuaria (solo grupos, R4). Ausente sin split o mientras dure la pausa por dolor. */
   focus?: { dayTypeId: string; label: string; groups: string[] };
+  /** Rutina armada con el tiempo libre real de ese día. Ausente con pausa por dolor (R4) o si el tiempo es muy corto. */
+  routine?: Routine;
   /** Lunes local de la semana ("YYYY-MM-DD"). */
   weekOf: string;
   createdAt: string;

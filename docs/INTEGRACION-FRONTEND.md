@@ -172,6 +172,12 @@ Todas son `POST`, cuerpo opcional, y devuelven `{ appointment, replies, now }`.
 | GET | `/meta` | Zona horaria, `demoUserId`, hora actual del backend, si Telegram está activo |
 | GET | `/health` | `{ ok: true }` |
 
+### Rutina según el tiempo libre
+
+Al agendar o mover una cita el backend arma `AppointmentView.routine` con los minutos que de verdad hay desde esa hora: el menor entre la duración que ella eligió, el próximo bloque ocupado de su calendario (Google conectado o `POST /busy`), la próxima cita y el cierre del gym. Si el hueco es más corto que `sessionMin`, la cita se acorta a lo que cabe (`durationMin` = `routine.minutes`, en múltiplos de 5; el evento de Google y el `.ics` se actualizan). Con menos de 20 min no hay rutina. La rutina usa los grupos del `focus` (todo el cuerpo si no hay split) y sale de un catálogo fijo de ejercicios básicos, sin LLM; cada semana rota las variantes. Qué mostrar: calentamiento + `items` (`name`, `sets × reps`).
+
+En Telegram: el recordatorio del día trae un segundo mensaje con la rutina, y ella puede pedirla escribiendo «qué toca hoy» o «mi rutina». También va en la descripción del evento de Google y del `.ics`. R4: con pausa por dolor no hay rutina ni foco. Sin pesos, sin cifras del cuerpo y sin metas de resultado.
+
 ### Split y foco por sesión
 
 `PATCH /users/:id/preferences { split: { id, sessions } }` guarda el split (`fullbody` 1·2·3, `upper-lower` 2·4, `ppl` 3·6, `torso-piernas-brazos` 3, `cinco-dias` 5; otra combinación responde 400 `invalid_split`). El backend corre el mismo planificador que la web (`backend/src/splits.ts` es copia literal de `frontend/src/lib/splits.ts`: si uno cambia, cambia el otro) y deja el foco en `AppointmentView.focus` al agendar o mover la cita. El recordatorio lo nombra: «Hoy toca Pull: espalda y bíceps», sin ejercicios, series ni repeticiones.

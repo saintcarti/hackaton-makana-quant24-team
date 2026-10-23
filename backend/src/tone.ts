@@ -34,7 +34,7 @@ export function toneViolations(text: string): string[] {
 
 export const T = {
   capture: (name: string, minutes = 40) =>
-    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son ${minutes} minutos y 3 máquinas que ya conoces.`,
+    `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son ${minutes} minutos como máximo, y armo tu rutina según el tiempo que tengas libre ese día.`,
   slotChosen: (label: string, venue: string) => `Listo: ${label}, ${venue}. Te dejo la cita para tu calendario.`,
   askOtherHour: () => 'Dime día y hora, por ejemplo "martes 20:30", y la dejo agendada.',
   otherHourUnclear: () => 'No alcancé a entender la hora. Puedes escribir algo como "miércoles 20:00".',
@@ -45,6 +45,14 @@ export const T = {
     focus
       ? `A las ${time} tienes la cita contigo: ${minutes} minutos. Hoy toca ${focus}. Si la reunión se alargó, escribe "mueve".`
       : `A las ${time} tienes la cita contigo: ${minutes} minutos, 3 máquinas. Si la reunión se alargó, escribe "mueve".`,
+  routine: (r: { minutes: number; warmupMin: number; items: Array<{ name: string; sets: number; reps: string }> }, focus?: string) =>
+    [
+      `Tu sesión de ${r.minutes} min${focus ? ` (${focus})` : ''}, armada con el tiempo que tienes ese día:`,
+      `• Calentamiento: ${r.warmupMin} min de movilidad y cardio suave`,
+      ...r.items.map((i) => `• ${i.name}: ${i.sets} × ${i.reps}`),
+      'Descansa cerca de 1 min entre series y elige un peso con el que mantengas buena técnica. Si algo te molesta, para y consúltalo con un kinesiólogo o un médico deportólogo.',
+    ].join('\n'),
+  noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
   moved: (label: string) => `Hecho, la moví al ${label}. Mover no es fallar.`,
   renegotiate: (a: string, b: string) =>
