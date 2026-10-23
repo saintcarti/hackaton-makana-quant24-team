@@ -20,6 +20,8 @@ interface Props {
   window: { start: string; end: string } | null;
   gymHours?: { open: string; close: string } | null;
   suggestions?: Suggestion[];
+  /** Foco del split de cada cita (índice del día → «Push», «Pull»…); vacío si el plan está en pausa. */
+  focusByDay?: Record<number, string>;
   /** De dónde salen las horas ocupadas (Google o el calendario de ejemplo); null si no hay. */
   busyLabel?: string | null;
   google: GoogleState;
@@ -46,6 +48,7 @@ export default function WeekCalendar({
   window: gymWindow,
   gymHours,
   suggestions = [],
+  focusByDay = {},
   busyLabel = null,
   google,
   googleNote,
@@ -254,9 +257,13 @@ export default function WeekCalendar({
                     key={b.id}
                     className={`ev ev-cita ${b.status}`}
                     style={{ top: y(b.startMinutes), height: Math.max(42, b.durationMin * pxPerMin) }}
-                    title={`${b.time} · ${b.label}`}
+                    title={`${b.time} · ${b.label}${focusByDay[i] ? ` · ${focusByDay[i]}` : ''}`}
                   >
-                    <div className="t">{b.time}</div>
+                    {/* El foco va en el renglón de la hora: un tercer renglón no cabe en una cita de 40 min. */}
+                    <div className="t">
+                      {b.time}
+                      {focusByDay[i] && <span className="ev-focus"> · {focusByDay[i]}</span>}
+                    </div>
                     <div>{b.label}</div>
                   </div>
                 ))}

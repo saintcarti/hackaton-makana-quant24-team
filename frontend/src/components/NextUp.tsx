@@ -1,14 +1,17 @@
 import type { AppointmentView, Summary } from '../lib/api-types';
 import { capitalize, fmtCLP, fmtDay, fmtTime, mondayOf, santiagoParts } from '../lib/format';
+import { describeDayType, type DayType } from '../lib/splits';
 
 interface Props {
   summary: Summary | null;
   appts: AppointmentView[];
   now: string | null;
   synthetic: boolean;
+  /** Foco del split por fecha (semana visible); sin entrada, no se muestra. */
+  focusByDate?: Record<string, DayType>;
 }
 
-export default function NextUp({ summary, appts, now, synthetic }: Props) {
+export default function NextUp({ summary, appts, now, synthetic, focusByDate = {} }: Props) {
   const next = summary?.nextAppointment ?? null;
   // Sin próxima cita, se muestra la de esta semana tal cual (p. ej. «Realizada» tras el «listo», o «Semana de
   // descanso», que no tiene hora), sin suponer nada.
@@ -22,6 +25,7 @@ export default function NextUp({ summary, appts, now, synthetic }: Props) {
           .sort((a, b) => (b.startsAt ?? '').localeCompare(a.startsAt ?? ''))[0] ?? null
       : null;
   const shown = next ?? thisWeek;
+  const focus = shown?.local?.date ? focusByDate[shown.local.date] : undefined;
 
   return (
     <section className="panel next" aria-label="Tu cita contigo">
@@ -39,6 +43,12 @@ export default function NextUp({ summary, appts, now, synthetic }: Props) {
               <span className={`chip${shown.status === 'done' ? '' : ' chip-accent'}`}>{shown.label}</span>
               {shown.durationMin} min · {shown.venue}
             </p>
+            {focus && (
+              <p className="next-focus">
+                <b>{focus.label}</b>
+                {describeDayType(focus).slice(focus.label.length)}
+              </p>
+            )}
           </>
         ) : shown ? (
           <>

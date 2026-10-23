@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { fmtMin, type FitEntry } from '../lib/fit';
-import {
-  PER_WEEK_OPTIONS,
-  SESSION_OPTIONS,
-  prefsProblem,
-  prefsSummary,
-  type PrefsSource,
-  type SessionPrefs,
-} from '../lib/prefs';
+import { SESSION_OPTIONS, prefsProblem, prefsSummary, withSplit, type PrefsSource, type SessionPrefs } from '../lib/prefs';
+import { SPLITS, describeDayType, getSplit, type DayType, type SplitChoice, type SplitId, type SplitPlan } from '../lib/splits';
 import Sheet from './Sheet';
+import SplitWeek, { sessionsText } from './SplitWeek';
 
 interface Props {
   prefs: SessionPrefs;
@@ -24,9 +19,17 @@ interface Props {
   calendarPhrase: string | null;
   saveNote: string | null;
   onSave: (p: SessionPrefs) => Promise<void>;
+  /** Plan por split de la semana visible (null en semana de descanso). */
+  plan: SplitPlan | null;
+  /** Foco de cada día con sesión (cita o sugerencia); vacío mientras el plan está en pausa. */
+  focusByDate: Record<string, DayType>;
+  /** R4: derivación por dolor sin retomar todavía. */
+  paused: boolean;
+  onResume: () => void;
+  alternative: SplitChoice | null;
 }
 
-type Step = 'ask-gym' | 'ask-duration' | 'summary';
+type Step = 'ask-gym' | 'ask-duration' | 'ask-split' | 'summary';
 
 const DAY_SHORT = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 // Orden de la semana en pantalla (lunes primero) → convención 0 = domingo.
@@ -42,6 +45,12 @@ const DAY_FULL: Record<number, string> = {
   0: 'domingo',
 };
 
+/** Sesiones con que parte cada split si no se elige otra cosa: 2 si existe esa variante, si no la más chica. */
+const defaultSessions = (id: SplitId) => {
+  const v = getSplit(id).variants;
+  return v.includes(2) ? 2 : Math.min(...v);
+};
+
 export default function SessionSetup({
   prefs,
   source,
@@ -53,6 +62,11 @@ export default function SessionSetup({
   calendarPhrase,
   saveNote,
   onSave,
+  plan,
+  focusByDate,
+  paused,
+  onResume,
+  alternative,
 }: Props) {
   const [step, setStep] = useState<Step>(source === 'default' ? 'ask-gym' : 'summary');
   const [editing, setEditing] = useState(false);
@@ -98,6 +112,11 @@ export default function SessionSetup({
   const set = (patch: Partial<SessionPrefs>) => setDraft((d) => ({ ...d, ...patch }));
   const toggleDay = (day: number) =>
     set({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day].sort() });
+  // En el editor no se tocan los días: si no alcanzan, prefsProblem lo dice.
+  const setSplit = (id: SplitId) => {
+    const sessions = getSplit(id).variants.includes(draft.split.sessions) ? draft.split.sessions : defaultSessions(id);
+    set({ split: { id, sessions }, perWeek: sessions });
+  };
 
   const editor = (
     <Sheet
@@ -149,6 +168,16 @@ export default function SessionSetup({
             />
           </div>
         </fieldset>
+        <fieldset className="span-2">
+          <legend>Split</legend>
+          <div className="chips">
+            {SPLITS.map((s) => (
+              <button key={s.id} type="button" className="chip-btn" aria-pressed={draft.split.id === s.id} onClick={() => setSplit(s.id)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <fieldset>
           <legend>Duración de la sesión</legend>
           <div className="chips">
@@ -160,10 +189,16 @@ export default function SessionSetup({
           </div>
         </fieldset>
         <fieldset>
-          <legend>Veces por semana</legend>
+          <legend>Sesiones por semana</legend>
           <div className="chips">
-            {PER_WEEK_OPTIONS.map((n) => (
-              <button key={n} type="button" className="chip-btn" aria-pressed={draft.perWeek === n} onClick={() => set({ perWeek: n })}>
+            {getSplit(draft.split.id).variants.map((n) => (
+              <button
+                key={n}
+                type="button"
+                className="chip-btn"
+                aria-pressed={draft.split.sessions === n}
+                onClick={() => set({ split: { ...draft.split, sessions: n }, perWeek: n })}
+              >
                 {n}
               </button>
             ))}
@@ -218,7 +253,7 @@ export default function SessionSetup({
   if (step === 'ask-duration') {
     return (
       <section className="panel setup" aria-label="Tu sesión">
-        <div className="eyebrow">Una más y listo</div>
+        <div className="eyebrow">Dos más y listo</div>
         <h2 className="display setup-q">¿Cuánto dura tu sesión?</h2>
         <div className="chips" role="group" aria-label="Duración de la sesión">
           {SESSION_OPTIONS.map((m) => (
@@ -226,15 +261,38 @@ export default function SessionSetup({
               key={m}
               className="chip-btn"
               aria-pressed={draft.sessionMin === m}
-              disabled={saving}
-              onClick={() => save({ ...draft, sessionMin: m })}
+              onClick={() => {
+                set({ sessionMin: m });
+                setStep('ask-split');
+              }}
             >
               {m} min
             </button>
           ))}
         </div>
+      </section>
+    );
+  }
+
+  if (step === 'ask-split') {
+    return (
+      <section className="panel setup" aria-label="Tu sesión">
+        <div className="eyebrow">La última</div>
+        <h2 className="display setup-q">¿Cómo divides tu semana?</h2>
+        <div className="split-options" role="group" aria-label="Split">
+          {SPLITS.map((s) => {
+            const n = defaultSessions(s.id);
+            return (
+              <button key={s.id} className="split-option" disabled={saving} onClick={() => save(withSplit(draft, { id: s.id, sessions: n }))}>
+                <span className="split-option-name">{s.label}</span>
+                <span className="split-option-blurb">{s.blurb}</span>
+                <span className="split-option-n">{sessionsText(n)}</span>
+              </button>
+            );
+          })}
+        </div>
         <p className="fineprint" style={{ margin: 0 }}>
-          El resto (días y veces por semana) lo puedes ajustar después.
+          Las sesiones por semana y los días los puedes ajustar después.
         </p>
       </section>
     );
@@ -259,6 +317,10 @@ export default function SessionSetup({
       </div>
       {saveNote && <p className="notice small" style={{ margin: 0 }}>{saveNote}</p>}
 
+      {!restWeek && !weekOver && (
+        <SplitWeek choice={prefs.split} plan={plan} paused={paused} onResume={onResume} alternative={alternative} weekTitle={weekTitle} />
+      )}
+
       <div>
         <h3 className="setup-h3">Dónde cabe · {weekTitle}</h3>
         {restWeek ? (
@@ -279,33 +341,47 @@ export default function SessionSetup({
           </div>
         ) : (
           <ul className="fit-list">
-            {entries.map((e) => (
-              <li key={e.date} className={`fit-${e.status}${e.suggested ? ' fit-suggested' : ''}`}>
-                <span className="fit-day">
-                  {DAY_SHORT[e.dayIndex]} {Number(e.date.slice(8))}
-                </span>
-                {e.status === 'fits' && e.slot ? (
-                  <span className="fit-value">
-                    <b>
-                      {fmtMin(e.slot.startMin)}–{fmtMin(e.slot.endMin)}
-                    </b>
-                    {e.suggested ? <span className="chip chip-accent">Cabe aquí</span> : <span className="muted">también libre</span>}
+            {entries.map((e) => {
+              const focus = focusByDate[e.date];
+              return (
+                <li key={e.date} className={`fit-${e.status}${e.suggested ? ' fit-suggested' : ''}`}>
+                  <span className="fit-day">
+                    {DAY_SHORT[e.dayIndex]} {Number(e.date.slice(8))}
                   </span>
-                ) : e.status === 'booked' ? (
-                  <span className="fit-value">
-                    <b>{e.reason}</b>
-                  </span>
-                ) : (
-                  <span className="fit-value muted">{e.reason}</span>
-                )}
-              </li>
-            ))}
+                  {e.status === 'fits' && e.slot ? (
+                    <span className="fit-value">
+                      <b>
+                        {fmtMin(e.slot.startMin)}–{fmtMin(e.slot.endMin)}
+                      </b>
+                      {e.suggested ? (
+                        <span className="chip chip-accent" title={focus ? describeDayType(focus) : undefined}>
+                          {focus ? `Cabe aquí · ${focus.short}` : 'Cabe aquí'}
+                        </span>
+                      ) : (
+                        <span className="muted">también libre</span>
+                      )}
+                    </span>
+                  ) : e.status === 'booked' ? (
+                    <span className="fit-value">
+                      <b>{e.reason}</b>
+                      {focus && (
+                        <span className="chip chip-accent" title={describeDayType(focus)}>
+                          {focus.short}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="fit-value muted">{e.reason}</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
         <p className="fineprint" style={{ margin: '0.5rem 0 0' }}>
           {calendarPhrase
-            ? `Mira el horario del gym, tu ventana, tus citas de La Cita y ${calendarPhrase}.`
-            : 'Sin calendario conectado, esto solo mira el horario del gym, tu ventana y tus citas de La Cita.'}
+            ? `Mira el horario del gym, tu ventana, tus citas de gogym y ${calendarPhrase}.`
+            : 'Sin calendario conectado, esto solo mira el horario del gym, tu ventana y tus citas de gogym.'}
         </p>
       </div>
       {editor}

@@ -11,7 +11,7 @@ import { useMessages } from './hooks/useMessages';
 import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
 import type { AppointmentView, CalendarWeek, GoogleStatus, Summary, User } from './lib/api-types';
 import { allDaySegments, toSegments } from './lib/calendar';
-import { fitWeek, pickSuggestions, type MovedFrom, type TakenInterval } from './lib/fit';
+import { fitWeek, pickSuggestions, type FitEntry, type MovedFrom, type TakenInterval } from './lib/fit';
 import { addDaysISO, santiagoParts, santiagoToDate } from './lib/format';
 import {
   fetchEvents,
@@ -22,7 +22,17 @@ import {
   type CalendarEvent,
   type GoogleSession,
 } from './lib/google';
-import { clearPrefsLocal, loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
+import { clearPrefsLocal, loadPrefs, savePrefsLocal, toBackendPrefs, type SessionPrefs } from './lib/prefs';
+import { planSplit, type Candidate, type DayType, type FixedSession, type SplitPlan } from './lib/splits';
+import {
+  alternativeChoice,
+  clearSplitState,
+  fixedSessions,
+  painSince,
+  rememberBooked,
+  resumedAt,
+  saveResumed,
+} from './lib/splitState';
 import { SAMPLE_LABEL, sampleWorkWeek } from './lib/sampleCalendar';
 import { applyTheme, saveTheme, type Theme } from './lib/theme';
 
@@ -106,6 +116,8 @@ export default function App() {
   const srvConnected = !!srvGoogle?.connected;
 
   const [prefsVersion, setPrefsVersion] = useState(0);
+  // Sube cuando Camila retoma el plan de grupos después de una derivación por dolor (se relee del navegador).
+  const [splitVersion, setSplitVersion] = useState(0);
   const [prefsNote, setPrefsNote] = useState<string | null>(null);
   // Sube con cada «Preparar a Camila»: la tarjeta de sesión se rearma y vuelve a la primera pregunta.
   const [setupEpoch, setSetupEpoch] = useState(0);
@@ -392,8 +404,9 @@ export default function App() {
     () => !!cal && appts.some((a) => a.status === 'skipped' && a.weekOf === cal.weekOf),
     [appts, cal],
   );
-  const fitEntries = useMemo(() => {
-    if (!cal || !prefsState) return [];
+  const fit = useMemo((): { entries: FitEntry[]; plan: SplitPlan | null; candidates: Candidate[]; fixed: FixedSession[] } => {
+    const none = { entries: [], plan: null, candidates: [], fixed: [] };
+    if (!cal || !prefsState || !current) return none;
     const taken: TakenInterval[] = cal.blocks
       .filter((b) => ACTIVE_STATUSES.has(b.status))
       .map((b) => ({ dayIndex: b.dayIndex, startMin: b.startMinutes, endMin: b.startMinutes + b.durationMin }));
@@ -413,12 +426,47 @@ export default function App() {
       taken,
       movedFrom,
       now: nowParts,
-      preferredTime: current?.preferredTime,
+      preferredTime: current.preferredTime,
     });
-    return pickSuggestions(entries, prefsState.prefs.perWeek, restWeek);
-  }, [cal, prefsState, segments, events, isDemoUser, appts, restWeek, now, current?.preferredTime]);
+    if (restWeek) return { ...none, entries: pickSuggestions(entries, 0, true) };
+    // Plan por split: las citas reales entran siempre; las sesiones sugeridas van a días donde cabe, con un día de
+    // descanso entre dos que repiten grupo. Las citas ya mostradas conservan su foco (splitState).
+    const candidates: Candidate[] = entries
+      .filter((e) => e.status === 'booked' || e.status === 'fits')
+      .map((e) => ({ date: e.date, booked: e.status === 'booked' }));
+    const bookedDates = candidates.filter((c) => c.booked).map((c) => c.date);
+    const fixed = fixedSessions(current, prefsState.prefs.split, bookedDates);
+    const plan = planSplit(prefsState.prefs.split, candidates, fixed);
+    const suggested = new Set(plan.sessions.filter((s) => !s.booked).map((s) => s.date));
+    return { entries: entries.map((e) => ({ ...e, suggested: suggested.has(e.date) })), plan, candidates, fixed };
+    // `current` cambia de objeto cada 10 s; su contenido lo representa currentSignature.
+  }, [cal, prefsState, segments, events, isDemoUser, appts, restWeek, now, currentSignature]);
+  const fitEntries = fit.entries;
   // Sin respuesta a la primera pregunta no se dibujan sugerencias: serían reglas que ella todavía no eligió.
   const prefsConfigured = !!prefsState && prefsState.source !== 'default';
+
+  // R4: después de la derivación por dolor el plan no asigna focos hasta que ella diga que lo conversó con un profesional.
+  const painAt = useMemo(() => painSince(messages), [messages]);
+  const resumed = useMemo(() => (current ? resumedAt(current) : null), [currentSignature, splitVersion]);
+  const splitPaused = prefsConfigured && !!painAt && (!resumed || resumed < painAt);
+  const focusByDate = useMemo(() => {
+    const map: Record<string, DayType> = {};
+    if (fit.plan && prefsConfigured && !splitPaused) for (const s of fit.plan.sessions) map[s.date] = s.dayType;
+    return map;
+  }, [fit.plan, prefsConfigured, splitPaused]);
+  const focusByDay: Record<number, string> = {};
+  for (const e of fitEntries) if (e.status === 'booked' && focusByDate[e.date]) focusByDay[e.dayIndex] = focusByDate[e.date].short;
+  const splitAlternative = useMemo(
+    () => (fit.plan && !fit.plan.complete && prefsState ? alternativeChoice(prefsState.prefs.split, fit.candidates, fit.fixed) : null),
+    [fit, prefsState],
+  );
+  // Lo que Camila ya vio de sus citas reales queda fijo: el foco de una cita no cambia por reacomodar el resto.
+  useEffect(() => {
+    if (current && prefsState && prefsConfigured && !splitPaused && fit.plan) {
+      rememberBooked(current, prefsState.prefs.split, fit.plan.sessions);
+    }
+  }, [fit.plan, splitPaused]);
+
   const suggestions: Suggestion[] = prefsConfigured
     ? fitEntries
         .filter((e) => e.suggested && e.slot)
@@ -427,14 +475,24 @@ export default function App() {
           dayIndex: e.dayIndex,
           startMin: e.slot!.startMin,
           endMin: e.slot!.endMin,
-          label: `Cabe ${prefsState!.prefs.sessionMin}'`,
+          label: focusByDate[e.date]
+            ? `${focusByDate[e.date].short} · ${prefsState!.prefs.sessionMin}'`
+            : `Cabe ${prefsState!.prefs.sessionMin}'`,
         }))
     : [];
+
+  function resumeSplit() {
+    if (!current || !prefsState) return;
+    // Misma escala de tiempo que el mensaje de derivación: el reloj del backend (real o simulado).
+    saveResumed(current, prefsState.prefs.split, now ?? new Date().toISOString());
+    setSplitVersion((v) => v + 1);
+  }
 
   async function savePrefs(p: SessionPrefs) {
     if (!userId || !current) return;
     try {
-      const r = await api.savePrefs(userId, p);
+      // El backend valida estricto (sin split, hasta 3 sesiones): el split queda en este navegador.
+      const r = await api.savePrefs(userId, toBackendPrefs(p));
       // El backend devuelve la usuaria con sus reglas: desde ahora es la fuente de verdad.
       setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
       savePrefsLocal(r.user, p);
@@ -443,7 +501,7 @@ export default function App() {
     } catch (e) {
       const stored = savePrefsLocal(current, p);
       if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setPrefsNote(LOCAL_PREFS_NOTE);
-      else setPrefsNote(stored ? 'No pudimos guardarlas en La Cita; quedaron en este navegador.' : 'No pudimos guardar tus reglas.');
+      else setPrefsNote(stored ? 'No pudimos guardarlas en gogym; quedaron en este navegador.' : 'No pudimos guardar tus reglas.');
     }
     setPrefsVersion((v) => v + 1);
   }
@@ -452,7 +510,10 @@ export default function App() {
   function afterReset() {
     resetChat();
     setWeekOf(null);
-    if (demoUserId) clearPrefsLocal(demoUserId);
+    if (demoUserId) {
+      clearPrefsLocal(demoUserId);
+      clearSplitState(demoUserId);
+    }
     setPrefsNote(null);
     setPrefsVersion((v) => v + 1);
     setSetupEpoch((n) => n + 1);
@@ -527,7 +588,7 @@ export default function App() {
     <>
       <div ref={sentinelRef} className="scroll-sentinel" aria-hidden="true" />
       <header className="topbar" data-scrolled={scrolled ? 'true' : undefined}>
-        <span className="brand">La Cita</span>
+        <span className="brand">gogym</span>
         <div className="seg" role="group" aria-label="Vista">
           <button aria-pressed={view === 'camila'} onClick={() => setView('camila')}>
             <span className="hide-sm">Lo que ve Camila</span>
@@ -606,7 +667,9 @@ export default function App() {
 
       <div className="layout">
         <div className="main-col">
-          {view === 'camila' && <NextUp summary={summary} appts={appts} now={now} synthetic={!!current?.synthetic} />}
+          {view === 'camila' && (
+            <NextUp summary={summary} appts={appts} now={now} synthetic={!!current?.synthetic} focusByDate={focusByDate} />
+          )}
           {view === 'camila' && prefsState && cal && (
             <SessionSetup
               key={`${userId ?? 'none'}-${setupEpoch}`}
@@ -626,6 +689,11 @@ export default function App() {
               }
               saveNote={shownNote}
               onSave={savePrefs}
+              plan={fit.plan}
+              focusByDate={focusByDate}
+              paused={splitPaused}
+              onResume={resumeSplit}
+              alternative={splitAlternative}
             />
           )}
           {view === 'equipo' && userId && (
@@ -654,6 +722,7 @@ export default function App() {
             window={view === 'camila' && prefsState ? prefsState.prefs.window : current?.window ?? null}
             gymHours={view === 'camila' && prefsConfigured ? prefsState!.prefs.gymHours : null}
             suggestions={view === 'camila' ? suggestions : []}
+            focusByDay={view === 'camila' ? focusByDay : undefined}
             busyLabel={busyLabel}
             google={isDemoUser ? gState : 'off'}
             googleNote={isDemoUser ? gNote : null}

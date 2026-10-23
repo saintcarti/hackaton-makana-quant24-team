@@ -1,6 +1,6 @@
-# Frontend · La Cita
+# Frontend · gogym
 
-Carpeta de Benjamin Caldera. Web de Camila: login, su semana (citas de La Cita + su Google Calendar), el chat que espeja Telegram y el panel de demo con los tres momentos del pitch.
+Carpeta de Benjamin Caldera. Web de Camila: login, su semana (citas de gogym + su Google Calendar), el chat que espeja Telegram y el panel de demo con los tres momentos del pitch.
 
 Stack: Vite + React + TypeScript, CSS con tokens propios (postura: minimalismo cálido), fuentes locales con `@fontsource` para que el demo corra sin red (R6).
 

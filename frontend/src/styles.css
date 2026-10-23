@@ -1,4 +1,7 @@
-/* La Cita · postura: minimalismo cálido con materiales Apple (tokens base: C:\Claude\_design\tokens\minimalismo-calido.json, hue 65).
+/* gogym · postura: minimalismo con materiales Apple, paleta fría eléctrica "deep tech lightning blue" (hue ~258).
+   DESVIACIÓN DECLARADA de minimalismo cálido, pedida por Benjamín (23-oct): acento cobalto oklch(0.5 0.18 258) en claro,
+   relámpago oklch(0.77 0.115 257) en oscuro; cielo "hora azul" en vez del atardecer. Sin violeta (P-01): hue < 268 en todo.
+   Estructura base: C:\Claude\_design\tokens\minimalismo-calido.json.
    EXCEPCIÓN P-05 (declarada por Benjamín): vidrio esmerilado SOLO en capas que flotan sobre contenido
    (barra al hacer scroll, chat, selector, hoja, HUD, aviso). Las tarjetas de contenido van en material grueso, sin blur.
    EXCEPCIÓN P-02: texto en la fuente del sistema (SF en Apple, Segoe en Windows); Fraunces solo en números destacados.
@@ -6,42 +9,42 @@
 
 :root {
   color-scheme: light;
-  --surface-0: oklch(0.985 0.008 65);
-  --surface-1: oklch(0.96 0.012 65);
-  --surface-2: oklch(0.93 0.016 65);
-  --surface-3: oklch(0.89 0.02 65);
-  --text-1: oklch(0.24 0.02 65);
-  --text-2: oklch(0.43 0.022 65);
-  --text-3: oklch(0.52 0.02 65);
-  --fill: oklch(0.25 0.02 65 / 0.07);
-  --fill-hover: oklch(0.25 0.02 65 / 0.11);
-  --line-subtle: oklch(0.25 0.02 65 / 0.1);
-  --line-strong: oklch(0.25 0.02 65 / 0.22);
-  --accent: oklch(0.56 0.13 65);
-  --accent-hover: oklch(0.49 0.14 65);
-  --accent-ink: oklch(0.42 0.11 65);
-  --accent-subtle: oklch(0.94 0.04 65);
-  --done: oklch(0.5 0.11 145);
-  --done-subtle: oklch(0.94 0.035 145);
-  --busy: oklch(0.91 0.012 230);
-  --busy-ink: oklch(0.42 0.03 230);
-  --on-accent: oklch(0.99 0.006 65);
+  --surface-0: oklch(0.985 0.005 250);
+  --surface-1: oklch(0.96 0.01 252);
+  --surface-2: oklch(0.93 0.014 254);
+  --surface-3: oklch(0.89 0.018 255);
+  --text-1: oklch(0.21 0.03 258);
+  --text-2: oklch(0.42 0.03 257);
+  --text-3: oklch(0.52 0.026 256);
+  --fill: oklch(0.25 0.03 258 / 0.07);
+  --fill-hover: oklch(0.25 0.03 258 / 0.11);
+  --line-subtle: oklch(0.25 0.03 258 / 0.1);
+  --line-strong: oklch(0.25 0.03 258 / 0.22);
+  --accent: oklch(0.5 0.18 258);
+  --accent-hover: oklch(0.45 0.16 259);
+  --accent-ink: oklch(0.42 0.15 259);
+  --accent-subtle: oklch(0.9 0.044 255);
+  --done: oklch(0.5 0.1 158);
+  --done-subtle: oklch(0.94 0.035 158);
+  --busy: oklch(0.865 0.01 255);
+  --busy-ink: oklch(0.4 0.03 255);
+  --on-accent: oklch(0.99 0.004 250);
   --seg-thumb: var(--surface-0);
-  --seg-track: oklch(0.25 0.02 65 / 0.13);
+  --seg-track: oklch(0.25 0.03 258 / 0.13);
   /* Texto secundario apoyado directo sobre el cielo (sin tarjeta): más oscuro que text-2 para pasar APCA. */
-  --on-sky-2: oklch(0.28 0.03 55);
+  --on-sky-2: oklch(0.3 0.03 258);
   /* Borde de campos y chips sin elegir: ≥3:1 contra la superficie (el relleno solo no los define). Medido. */
-  --line-input: oklch(0.25 0.02 65 / 0.58);
+  --line-input: oklch(0.25 0.03 258 / 0.58);
 
-  /* Cielo de las 19:00 en Santiago: arena → ámbar → terracota (sin púrpura ni azul, P-01). */
+  /* Hora azul: hielo → acero → azul, resplandor eléctrico abajo a la derecha; una familia de azul (hue 238-257), sin violeta (P-01). */
   --sky: linear-gradient(
     180deg,
-    oklch(0.95 0.025 75) 0%,
-    oklch(0.91 0.05 68) 38%,
-    oklch(0.85 0.08 58) 72%,
-    oklch(0.79 0.1 46) 100%
+    oklch(0.975 0.011 246) 0%,
+    oklch(0.935 0.018 249) 38%,
+    oklch(0.895 0.034 253) 72%,
+    oklch(0.86 0.066 257) 100%
   );
-  --sky-glow: radial-gradient(60% 50% at 80% 90%, oklch(0.9 0.12 70 / 0.6), transparent 70%);
+  --sky-glow: radial-gradient(60% 50% at 80% 90%, oklch(0.91 0.045 238 / 0.6), transparent 70%);
 
   /* Materiales (Apple §12): el grueso para contenido, los livianos para lo que flota. */
   --mat-thick: color-mix(in oklch, var(--surface-0) 88%, transparent);
@@ -61,9 +64,9 @@
   --r-control: 12px;
   --r-pill: 999px;
 
-  --e1: 0 1px 2px oklch(0.3 0.04 55 / 0.06);
-  --e2: 0 6px 18px oklch(0.3 0.05 55 / 0.08), 0 1px 3px oklch(0.3 0.05 55 / 0.06);
-  --e3: 0 18px 48px oklch(0.3 0.05 55 / 0.16), 0 2px 6px oklch(0.3 0.05 55 / 0.08);
+  --e1: 0 1px 2px oklch(0.3 0.05 258 / 0.06);
+  --e2: 0 6px 18px oklch(0.3 0.06 258 / 0.08), 0 1px 3px oklch(0.3 0.06 258 / 0.06);
+  --e3: 0 18px 48px oklch(0.3 0.06 258 / 0.16), 0 2px 6px oklch(0.3 0.06 258 / 0.08);
 
   /* Curva de hoja de iOS: rápida al salir, se asienta sin rebote (amortiguación crítica). */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
@@ -73,43 +76,43 @@
 /* Modo oscuro por elección (botón de la barra o ?tema=oscuro), no por el sistema: ver src/lib/theme.ts. */
 :root[data-theme='dark'] {
     color-scheme: dark;
-    --surface-0: oklch(0.21 0.012 60);
-    --surface-1: oklch(0.25 0.014 60);
-    --surface-2: oklch(0.29 0.016 60);
-    --surface-3: oklch(0.35 0.018 60);
-    --text-1: oklch(0.95 0.01 65);
-    --text-2: oklch(0.8 0.016 65);
-    --text-3: oklch(0.7 0.016 65);
-    --fill: oklch(0.95 0.01 65 / 0.08);
-    --fill-hover: oklch(0.95 0.01 65 / 0.13);
-    --line-subtle: oklch(0.95 0.01 65 / 0.1);
-    --line-strong: oklch(0.95 0.01 65 / 0.2);
+    --surface-0: oklch(0.215 0.022 258);
+    --surface-1: oklch(0.25 0.024 258);
+    --surface-2: oklch(0.29 0.026 258);
+    --surface-3: oklch(0.35 0.028 258);
+    --text-1: oklch(0.955 0.008 250);
+    --text-2: oklch(0.81 0.02 252);
+    --text-3: oklch(0.7 0.02 252);
+    --fill: oklch(0.95 0.01 250 / 0.08);
+    --fill-hover: oklch(0.95 0.01 250 / 0.13);
+    --line-subtle: oklch(0.95 0.01 250 / 0.1);
+    --line-strong: oklch(0.95 0.01 250 / 0.2);
     /* Medido con APCA sobre el tramo más claro del cielo nocturno: texto sobre acento y verde ≥ Lc 60. */
-    --accent: oklch(0.78 0.12 65);
-    --accent-hover: oklch(0.84 0.11 65);
-    --accent-ink: oklch(0.85 0.1 65);
-    --accent-subtle: oklch(0.33 0.05 65);
-    --done: oklch(0.82 0.1 145);
-    --done-subtle: oklch(0.31 0.04 145);
-    --busy: oklch(0.31 0.015 230);
-    --busy-ink: oklch(0.82 0.03 230);
-    --on-accent: oklch(0.2 0.012 65);
-    --seg-thumb: oklch(0.4 0.018 60);
+    --accent: oklch(0.77 0.115 257);
+    --accent-hover: oklch(0.83 0.085 255);
+    --accent-ink: oklch(0.84 0.078 253);
+    --accent-subtle: oklch(0.32 0.075 258);
+    --done: oklch(0.82 0.11 158);
+    --done-subtle: oklch(0.31 0.045 158);
+    --busy: oklch(0.345 0.016 255);
+    --busy-ink: oklch(0.85 0.022 252);
+    --on-accent: oklch(0.16 0.03 262);
+    --seg-thumb: oklch(0.4 0.024 258);
     --sky: linear-gradient(
       180deg,
-      oklch(0.17 0.012 55) 0%,
-      oklch(0.2 0.025 50) 45%,
-      oklch(0.25 0.05 44) 80%,
-      oklch(0.3 0.07 40) 100%
+      oklch(0.16 0.03 262) 0%,
+      oklch(0.19 0.045 261) 45%,
+      oklch(0.23 0.065 259) 80%,
+      oklch(0.27 0.085 257) 100%
     );
-    --sky-glow: radial-gradient(55% 45% at 82% 92%, oklch(0.48 0.12 50 / 0.45), transparent 70%);
+    --sky-glow: radial-gradient(55% 45% at 82% 92%, oklch(0.52 0.18 257 / 0.42), transparent 70%);
     --glass-border: oklch(1 0 0 / 0.1);
     --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.08);
-    --e2: 0 8px 22px oklch(0.05 0.01 50 / 0.35), 0 1px 3px oklch(0.05 0.01 50 / 0.3);
-    --e3: 0 22px 56px oklch(0.05 0.01 50 / 0.5), 0 2px 8px oklch(0.05 0.01 50 / 0.35);
-    --on-sky-2: oklch(0.86 0.02 65);
-    --line-input: oklch(0.95 0.01 65 / 0.5);
-    --seg-track: oklch(0.95 0.01 65 / 0.1);
+    --e2: 0 8px 22px oklch(0.08 0.03 262 / 0.35), 0 1px 3px oklch(0.08 0.03 262 / 0.3);
+    --e3: 0 22px 56px oklch(0.08 0.03 262 / 0.5), 0 2px 8px oklch(0.08 0.03 262 / 0.35);
+    --on-sky-2: oklch(0.87 0.018 250);
+    --line-input: oklch(0.95 0.01 250 / 0.55);
+    --seg-track: oklch(0.95 0.01 250 / 0.1);
 }
 
 /* Respaldo (Apple §14): sin backdrop-filter, menos transparencia o más contraste → superficies sólidas. */
@@ -393,7 +396,7 @@ select {
   color: var(--on-sky-2);
 }
 
-/* Lo que va directo sobre el cielo (sin tarjeta) usa el secundario más oscuro: el terracota baja el contraste. */
+/* Lo que va directo sobre el cielo (sin tarjeta) usa el secundario más oscuro: el azul de abajo baja el contraste. */
 .login-story .eyebrow,
 .login-story .fineprint {
   color: var(--on-sky-2);
@@ -522,7 +525,7 @@ select {
   background: var(--seg-thumb);
   box-shadow:
     0 0 0 1px var(--line-input),
-    0 1px 4px oklch(0.3 0.04 55 / 0.25);
+    0 1px 4px oklch(0.3 0.05 258 / 0.25);
   transition: transform 360ms var(--ease-sheet);
   z-index: -1;
 }
@@ -1133,7 +1136,7 @@ select {
 .sheet-scrim {
   position: absolute;
   inset: 0;
-  background: oklch(0.2 0.02 55 / 0.34);
+  background: oklch(0.2 0.03 260 / 0.34);
   opacity: 0;
   transition: opacity 340ms var(--ease-sheet);
 }
@@ -1867,4 +1870,153 @@ select {
   .topbar .who {
     display: none;
   }
+}
+
+/* ── Plan por split ──────────────────────────────────────── */
+
+.split-week {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.split-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.split-head .setup-h3 {
+  margin: 0;
+}
+
+/* Cubierto: relleno de acento con check. Sin cubrir: borde punteado, sin rojo ni alarma (no es una falta). */
+.split-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.split-groups li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 30px;
+  padding: 0.2rem 0.7rem;
+  border-radius: var(--r-pill);
+  border: 1px dashed var(--line-input);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+}
+
+.split-groups li.on {
+  border-style: solid;
+  border-color: transparent;
+  background: var(--accent-subtle);
+  color: var(--accent-ink);
+}
+
+.split-status {
+  margin: 0;
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+}
+
+.split-paused {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+}
+
+/* Primera pregunta: lista agrupada estilo Ajustes, una fila por split. */
+.split-options {
+  display: grid;
+  border-radius: 14px;
+  background: var(--surface-0);
+  box-shadow: 0 0 0 1px var(--line-subtle);
+  overflow: hidden;
+}
+
+.split-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.1rem 0.75rem;
+  min-height: 56px;
+  padding: 0.65rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.split-option + .split-option::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1rem;
+  right: 0;
+  border-top: 1px solid var(--line-subtle);
+}
+
+.split-option:hover {
+  background: var(--fill);
+}
+
+.split-option:active {
+  background: var(--accent-subtle);
+}
+
+.split-option:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.split-option-name {
+  font-weight: 650;
+}
+
+.split-option-blurb {
+  grid-column: 1;
+  font-size: 0.875rem;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+}
+
+.split-option-n {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--accent-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Foco de la sesión en la grilla (junto a la hora, en la fuente de texto) y en la próxima cita. */
+.ev-focus {
+  font-family: var(--font-text);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.01em;
+}
+
+.next-focus {
+  margin: 0.55rem 0 0;
+  font-size: 0.94rem;
+  color: var(--text-2);
+}
+
+.next-focus b {
+  color: var(--accent-ink);
 }
