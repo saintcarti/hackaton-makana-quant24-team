@@ -79,10 +79,13 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
 
   // ───────────── demo ─────────────
   app.post('/api/demo/reset', requireAdmin, async (c) => {
-    const body = z.object({ seed: z.boolean().default(true), now: z.string().datetime().optional() }).parse(await c.req.json().catch(() => ({})));
+    const body = z.object({ seed: z.boolean().default(true), now: z.string().datetime().optional(), keepGoogle: z.boolean().default(true) }).parse(await c.req.json().catch(() => ({})));
     const out = await engine.run((x) => {
       const now = body.now ? new Date(body.now) : new Date();
+      const links = x.db.google ?? {};
       x.db = freshDB(now, body.seed);
+      // Las conexiones de Google sobreviven al reset (se reconectaría con una autorización manual); el caché de ocupación no.
+      if (body.keepGoogle) x.db.google = Object.fromEntries(Object.entries(links).map(([id, l]) => [id, { ...l, busyCache: undefined }]));
       x.db.clockOffsetMs = body.now ? now.getTime() - Date.now() : 0;
       x.now = new Date(Date.now() + x.db.clockOffsetMs);
       return { demoUserId: body.seed ? DEMO_USER_ID : null, now: x.now.toISOString() };

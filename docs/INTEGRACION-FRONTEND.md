@@ -198,7 +198,7 @@ Tras conectar, el backend manda un mensaje al chat («Listo, quedó conectado tu
 
 | Método | Ruta | Cuerpo |
 |---|---|---|
-| POST | `/demo/reset` | `{ seed?: boolean (true), now?: ISO }` |
+| POST | `/demo/reset` | `{ seed?: boolean (true), now?: ISO, keepGoogle?: boolean (true) }`. Borra citas, chat y usuarias, pero conserva las conexiones de Google Calendar; con `keepGoogle: false` también las borra |
 | POST | `/demo/clock` | Uno de: `{ preset: 'sunday-20' \| 'sunday-2330' \| 'monday-1830' \| 'monday-2000' }`, `{ now: ISO }`, `{ advanceMinutes: n }`, `{ reset: true }` |
 | GET | `/demo/clock` | `{ now, simulated }` (abierto) |
 | POST | `/jobs/tick` | Ejecuta lo que toca a la hora actual: captura dominical, cita por defecto, recordatorio. Es idempotente |
