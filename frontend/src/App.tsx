@@ -22,8 +22,25 @@ import {
   type CalendarEvent,
   type GoogleSession,
 } from './lib/google';
-import { clearPrefsLocal, loadPrefs, savePrefsLocal, toBackendPrefs, type SessionPrefs } from './lib/prefs';
-import { planSplit, type Candidate, type DayType, type FixedSession, type SplitPlan } from './lib/splits';
+import { autoDecide, SESSION_LENGTHS, type AutoDecision, type DayRoom } from './lib/autoplan';
+import {
+  clearPrefsLocal,
+  loadPrefs,
+  savePrefsLocal,
+  SESSION_OPTIONS,
+  toBackendPrefs,
+  type SessionMin,
+  type SessionPrefs,
+} from './lib/prefs';
+import {
+  isValidChoice,
+  planSplit,
+  type Candidate,
+  type DayType,
+  type FixedSession,
+  type SplitChoice,
+  type SplitPlan,
+} from './lib/splits';
 import {
   alternativeChoice,
   clearSplitState,
@@ -52,6 +69,20 @@ const DATA_RETRY_MS = 3000;
 const USERS_POLL_MS = 10_000;
 const CLOCK_TICK_MS = 30_000;
 const ACTIVE_STATUSES = new Set(['proposed', 'confirmed', 'reminded', 'done']);
+
+/** Lo que se calcula de la semana visible: dónde cabe, el plan por split y, en modo agente, qué decidió. */
+interface FitState {
+  entries: FitEntry[];
+  plan: SplitPlan | null;
+  candidates: Candidate[];
+  fixed: FixedSession[];
+  /** Split y duración con que se armó el plan (los de ella en modo manual; los del agente en modo agente). */
+  choice: SplitChoice | null;
+  sessionMin: SessionMin | null;
+  decision: AutoDecision | null;
+  /** Semana ya empezada: se mantiene lo que tiene el backend en vez de volver a decidir. */
+  locked: boolean;
+}
 const LOCAL_PREFS_NOTE = 'El agente todavía no usa estas reglas: quedan en este navegador hasta que el backend las reciba.';
 
 function readDemoFlag() {
@@ -404,9 +435,12 @@ export default function App() {
     () => !!cal && appts.some((a) => a.status === 'skipped' && a.weekOf === cal.weekOf),
     [appts, cal],
   );
-  const fit = useMemo((): { entries: FitEntry[]; plan: SplitPlan | null; candidates: Candidate[]; fixed: FixedSession[] } => {
-    const none = { entries: [], plan: null, candidates: [], fixed: [] };
+  // La semana que muestra la web por defecto (la de la próxima cita): solo esa se sincroniza con el agente.
+  const isCurrentWeek = weekOf === null || weekOf === summary?.nextAppointment?.weekOf;
+  const fit = useMemo((): FitState => {
+    const none: FitState = { entries: [], plan: null, candidates: [], fixed: [], choice: null, sessionMin: null, decision: null, locked: false };
     if (!cal || !prefsState || !current) return none;
+    const prefs = prefsState.prefs;
     const taken: TakenInterval[] = cal.blocks
       .filter((b) => ACTIVE_STATUSES.has(b.status))
       .map((b) => ({ dayIndex: b.dayIndex, startMin: b.startMinutes, endMin: b.startMinutes + b.durationMin }));
@@ -419,36 +453,115 @@ export default function App() {
         .map((date) => ({ date, toDayName: a.local?.weekdayName ?? 'otro día' })),
     );
     const nowParts = now ? santiagoParts(new Date(now)) : null;
-    const entries = fitWeek({
-      days: cal.days,
-      prefs: prefsState.prefs,
-      busy: [...segments, ...(isDemoUser ? allDaySegments(events, cal.days) : [])],
-      taken,
-      movedFrom,
-      now: nowParts,
-      preferredTime: current.preferredTime,
-    });
-    if (restWeek) return { ...none, entries: pickSuggestions(entries, 0, true) };
+    const busy = [...segments, ...(isDemoUser ? allDaySegments(events, cal.days) : [])];
+    const fitFor = (sessionMin: SessionMin, takenNow: TakenInterval[] = taken) =>
+      fitWeek({ days: cal.days, prefs: { ...prefs, sessionMin }, busy, taken: takenNow, movedFrom, now: nowParts, preferredTime: current.preferredTime });
+    if (restWeek) return { ...none, entries: pickSuggestions(fitFor(prefs.sessionMin), 0, true) };
+
+    // Focos que el backend ya asignó a citas reales de esta semana (AppointmentView.focus): mandan sobre los que
+    // recuerda este navegador, para que la web y Telegram digan lo mismo.
+    const backendFocus: FixedSession[] = appts
+      .filter((a) => a.focus && a.local?.date && weekDates.has(a.local.date) && ACTIVE_STATUSES.has(a.status))
+      .map((a) => ({ date: a.local!.date, dayTypeId: a.focus!.dayTypeId }));
+    const fixedFor = (choice: SplitChoice, bookedDates: string[]) => {
+      const fromBackend = backendFocus.filter((f) => bookedDates.includes(f.date));
+      const seen = new Set(fromBackend.map((f) => f.date));
+      return [...fromBackend, ...fixedSessions(current, choice, bookedDates).filter((f) => !seen.has(f.date))];
+    };
+
+    let choice = prefs.split;
+    let sessionMin = prefs.sessionMin;
+    let decision: AutoDecision | null = null;
+    let locked = false;
+    let entries: FitEntry[];
+    if (prefs.mode === 'auto') {
+      // El agente mira cuántos minutos libres hay cada día (la duración estándar más larga que cabe) y decide.
+      const runs = new Map(SESSION_LENGTHS.map((len) => [len, fitFor(len)] as const));
+      // Para un día con cita real, su hueco sin contar la propia cita: lo que esa cita aguanta (el backend la acorta a
+      // eso). Si ya pasó, queda en 0 y no limita la duración.
+      const freeRuns = new Map(SESSION_LENGTHS.map((len) => [len, fitFor(len, [])] as const));
+      const rooms: DayRoom[] = runs.get(30)!.map((e, i) => {
+        const booked = e.status === 'booked';
+        const source = booked ? freeRuns : runs;
+        return { date: e.date, booked, maxMin: SESSION_LENGTHS.find((len) => source.get(len)![i].status === 'fits') ?? 0 };
+      });
+      // Si la semana ya empezó (una cita real de esta semana ya llegó a su hora, aunque sea hoy temprano), no se
+      // vuelve a decidir: se mantiene lo que tiene el backend (o lo último de este navegador), porque cambiar de
+      // split re-etiquetaría sesiones que ya hizo.
+      const nowMs = now ? Date.parse(now) : NaN;
+      const started = appts.some(
+        (a) => a.startsAt && a.local?.date && weekDates.has(a.local.date) && ACTIVE_STATUSES.has(a.status) && Date.parse(a.startsAt) <= nowMs,
+      );
+      if (started) {
+        const stored = current.split as SplitChoice | undefined;
+        const fromBackend = !!stored && isValidChoice(stored) && SESSION_OPTIONS.includes(current.sessionMin as SessionMin);
+        choice = fromBackend ? stored! : prefs.split;
+        sessionMin = fromBackend ? (current.sessionMin as SessionMin) : prefs.sessionMin;
+        locked = true;
+        entries = runs.get(sessionMin) ?? fitFor(sessionMin);
+      } else {
+        decision = autoDecide(prefs.perWeek, rooms);
+        choice = decision.choice;
+        sessionMin = decision.sessionMin;
+        entries = runs.get(sessionMin)!;
+      }
+    } else {
+      entries = fitFor(sessionMin);
+    }
+
     // Plan por split: las citas reales entran siempre; las sesiones sugeridas van a días donde cabe, con un día de
-    // descanso entre dos que repiten grupo. Las citas ya mostradas conservan su foco (splitState).
+    // descanso entre dos que repiten grupo. Con los focos que ya puso el backend, para que la web y Telegram coincidan
+    // (los de otro split se ignoran hasta que el backend re-enfoque con el split nuevo).
     const candidates: Candidate[] = entries
       .filter((e) => e.status === 'booked' || e.status === 'fits')
       .map((e) => ({ date: e.date, booked: e.status === 'booked' }));
-    const bookedDates = candidates.filter((c) => c.booked).map((c) => c.date);
-    const fixed = fixedSessions(current, prefsState.prefs.split, bookedDates);
-    const plan = planSplit(prefsState.prefs.split, candidates, fixed);
+    const fixed = fixedFor(choice, candidates.filter((c) => c.booked).map((c) => c.date));
+    const plan = planSplit(choice, candidates, fixed);
     const suggested = new Set(plan.sessions.filter((s) => !s.booked).map((s) => s.date));
-    return { entries: entries.map((e) => ({ ...e, suggested: suggested.has(e.date) })), plan, candidates, fixed };
+    return {
+      entries: entries.map((e) => ({ ...e, suggested: suggested.has(e.date) })),
+      plan,
+      candidates,
+      fixed,
+      choice,
+      sessionMin,
+      decision,
+      locked,
+    };
     // `current` cambia de objeto cada 10 s; su contenido lo representa currentSignature.
   }, [cal, prefsState, segments, events, isDemoUser, appts, restWeek, now, currentSignature]);
   const fitEntries = fit.entries;
   // Sin respuesta a la primera pregunta no se dibujan sugerencias: serían reglas que ella todavía no eligió.
   const prefsConfigured = !!prefsState && prefsState.source !== 'default';
 
+  // Modo agente: lo que decidió para la semana se le manda al backend (split y duración), así Telegram agenda y
+  // anuncia lo mismo que muestra la web. Solo la semana por defecto, una vez por decisión y sin reintentar en loop.
+  const syncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const d = fit.decision;
+    // Una semana sin días útiles (p. ej. domingo en la noche) no decide nada: no pisa el split que tiene el backend.
+    if (!userId || !current || !prefsConfigured || !d || !d.plan.sessions.length || fit.locked || !isCurrentWeek) return;
+    if (prefsState?.prefs.mode !== 'auto') return;
+    const same = current.split?.id === d.choice.id && current.split?.sessions === d.choice.sessions && current.sessionMin === d.sessionMin;
+    const key = `${userId}:${d.choice.id}:${d.choice.sessions}:${d.sessionMin}`;
+    if (same || syncedRef.current === key) return;
+    syncedRef.current = key;
+    api
+      .savePrefs(userId, { split: d.choice, sessionMin: d.sessionMin })
+      .then((r) => {
+        setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
+        bump();
+      })
+      .catch(() => {
+        /* Backend sin split (viejo o local): la web igual muestra la decisión; el agente sigue con lo que tenía. */
+      });
+  }, [fit.decision, fit.locked, isCurrentWeek, currentSignature, prefsConfigured, userId]);
+
   // R4: después de la derivación por dolor el plan no asigna focos hasta que ella diga que lo conversó con un profesional.
+  // Manda el backend (`user.painPause`); el chat y lo recordado acá cubren backends que todavía no lo tienen.
   const painAt = useMemo(() => painSince(messages), [messages]);
   const resumed = useMemo(() => (current ? resumedAt(current) : null), [currentSignature, splitVersion]);
-  const splitPaused = prefsConfigured && !!painAt && (!resumed || resumed < painAt);
+  const splitPaused = prefsConfigured && (!!current?.painPause || (!!painAt && (!resumed || resumed < painAt)));
   const focusByDate = useMemo(() => {
     const map: Record<string, DayType> = {};
     if (fit.plan && prefsConfigured && !splitPaused) for (const s of fit.plan.sessions) map[s.date] = s.dayType;
@@ -456,14 +569,18 @@ export default function App() {
   }, [fit.plan, prefsConfigured, splitPaused]);
   const focusByDay: Record<number, string> = {};
   for (const e of fitEntries) if (e.status === 'booked' && focusByDate[e.date]) focusByDay[e.dayIndex] = focusByDate[e.date].short;
+  // Solo en modo manual se sugiere otro split: en modo agente ya eligió el que cabe.
   const splitAlternative = useMemo(
-    () => (fit.plan && !fit.plan.complete && prefsState ? alternativeChoice(prefsState.prefs.split, fit.candidates, fit.fixed) : null),
+    () =>
+      fit.plan && !fit.plan.complete && fit.choice && prefsState?.prefs.mode === 'manual'
+        ? alternativeChoice(fit.choice, fit.candidates, fit.fixed)
+        : null,
     [fit, prefsState],
   );
   // Lo que Camila ya vio de sus citas reales queda fijo: el foco de una cita no cambia por reacomodar el resto.
   useEffect(() => {
-    if (current && prefsState && prefsConfigured && !splitPaused && fit.plan) {
-      rememberBooked(current, prefsState.prefs.split, fit.plan.sessions);
+    if (current && prefsConfigured && !splitPaused && fit.plan && fit.choice) {
+      rememberBooked(current, fit.choice, fit.plan.sessions);
     }
   }, [fit.plan, splitPaused]);
 
@@ -475,23 +592,33 @@ export default function App() {
           dayIndex: e.dayIndex,
           startMin: e.slot!.startMin,
           endMin: e.slot!.endMin,
-          label: focusByDate[e.date]
-            ? `${focusByDate[e.date].short} · ${prefsState!.prefs.sessionMin}'`
-            : `Cabe ${prefsState!.prefs.sessionMin}'`,
+          label: focusByDate[e.date] ? `${focusByDate[e.date].short} · ${fit.sessionMin}'` : `Cabe ${fit.sessionMin}'`,
         }))
     : [];
 
+  /**
+   * «Ya lo conversé con un profesional»: se lo dice al agente por el chat (el backend lo reconoce, limpia
+   * `painPause` y responde «Retomamos: …»), y además se recuerda acá por si el backend todavía no lo maneja.
+   */
   function resumeSplit() {
-    if (!current || !prefsState) return;
+    if (!current || !userId || !fit.choice) return;
     // Misma escala de tiempo que el mensaje de derivación: el reloj del backend (real o simulado).
-    saveResumed(current, prefsState.prefs.split, now ?? new Date().toISOString());
+    saveResumed(current, fit.choice, now ?? new Date().toISOString());
     setSplitVersion((v) => v + 1);
+    api
+      .send(userId, { text: 'Ya lo conversé con un profesional' })
+      .then((r) => {
+        merge(r.replies);
+        setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
+        bump();
+      })
+      .catch(() => showToast('No pudimos avisarle al agente; el plan igual se retomó en esta web.'));
   }
 
   async function savePrefs(p: SessionPrefs) {
     if (!userId || !current) return;
     try {
-      // El backend valida estricto (sin split, hasta 3 sesiones): el split queda en este navegador.
+      // En modo agente no van el split ni la duración (los sincroniza el efecto de arriba); perWeek hasta 3.
       const r = await api.savePrefs(userId, toBackendPrefs(p));
       // El backend devuelve la usuaria con sus reglas: desde ahora es la fuente de verdad.
       setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
@@ -580,7 +707,6 @@ export default function App() {
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
   const offline = apiDown || isOffline(chatErrorStatus);
   const notPrepared = !offline && chatErrorStatus === 404 && isDemoUser;
-  const isCurrentWeek = weekOf === null || weekOf === summary?.nextAppointment?.weekOf;
   const weekTitle = !cal ? '' : isCurrentWeek ? 'esta semana' : `semana del ${Number(cal.weekOf.slice(8))}`;
   const shownNote = prefsNote ?? (prefsState?.source === 'local' ? LOCAL_PREFS_NOTE : null);
 
@@ -690,6 +816,10 @@ export default function App() {
               saveNote={shownNote}
               onSave={savePrefs}
               plan={fit.plan}
+              planChoice={fit.choice}
+              planSessionMin={fit.sessionMin}
+              decision={fit.decision}
+              planLocked={fit.locked}
               focusByDate={focusByDate}
               paused={splitPaused}
               onResume={resumeSplit}

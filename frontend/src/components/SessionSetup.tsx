@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AutoDecision } from '../lib/autoplan';
 import { fmtMin, type FitEntry } from '../lib/fit';
-import { SESSION_OPTIONS, prefsProblem, prefsSummary, withSplit, type PrefsSource, type SessionPrefs } from '../lib/prefs';
+import {
+  PER_WEEK_OPTIONS,
+  SESSION_OPTIONS,
+  prefsProblem,
+  prefsSummary,
+  type PlanMode,
+  type PrefsSource,
+  type SessionMin,
+  type SessionPrefs,
+} from '../lib/prefs';
 import { SPLITS, describeDayType, getSplit, type DayType, type SplitChoice, type SplitId, type SplitPlan } from '../lib/splits';
 import Sheet from './Sheet';
-import SplitWeek, { sessionsText } from './SplitWeek';
+import SplitWeek from './SplitWeek';
 
 interface Props {
   prefs: SessionPrefs;
@@ -21,6 +31,13 @@ interface Props {
   onSave: (p: SessionPrefs) => Promise<void>;
   /** Plan por split de la semana visible (null en semana de descanso). */
   plan: SplitPlan | null;
+  /** Split y duración con que se armó el plan: los de ella (manual) o los que decidió el agente. */
+  planChoice: SplitChoice | null;
+  planSessionMin: SessionMin | null;
+  /** Modo agente: qué decidió y por qué (null en modo manual o con la semana ya fijada). */
+  decision: AutoDecision | null;
+  /** Modo agente con la semana ya empezada: mantiene el split del backend. */
+  planLocked: boolean;
   /** Foco de cada día con sesión (cita o sugerencia); vacío mientras el plan está en pausa. */
   focusByDate: Record<string, DayType>;
   /** R4: derivación por dolor sin retomar todavía. */
@@ -29,7 +46,7 @@ interface Props {
   alternative: SplitChoice | null;
 }
 
-type Step = 'ask-gym' | 'ask-duration' | 'ask-split' | 'summary';
+type Step = 'ask-gym' | 'ask-frequency' | 'summary';
 
 const DAY_SHORT = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 // Orden de la semana en pantalla (lunes primero) → convención 0 = domingo.
@@ -63,6 +80,10 @@ export default function SessionSetup({
   saveNote,
   onSave,
   plan,
+  planChoice,
+  planSessionMin,
+  decision,
+  planLocked,
   focusByDate,
   paused,
   onResume,
@@ -117,6 +138,16 @@ export default function SessionSetup({
     const sessions = getSplit(id).variants.includes(draft.split.sessions) ? draft.split.sessions : defaultSessions(id);
     set({ split: { id, sessions }, perWeek: sessions });
   };
+  // Al pasar a «Lo elijo yo» se parte de lo que decidió el agente; al volver al agente, sus veces quedan en 1–3.
+  const setMode = (mode: PlanMode) => {
+    if (mode === draft.mode) return;
+    if (mode === 'manual') {
+      const split = planChoice ?? draft.split;
+      set({ mode, split: { ...split }, perWeek: split.sessions, sessionMin: planSessionMin ?? draft.sessionMin });
+    } else {
+      set({ mode, perWeek: Math.min(3, Math.max(1, draft.perWeek)) });
+    }
+  };
 
   const editor = (
     <Sheet
@@ -128,6 +159,17 @@ export default function SessionSetup({
       onConfirm={() => save(draft)}
     >
       <div className="setup-grid">
+        <fieldset className="span-2">
+          <legend>Quién arma el plan</legend>
+          <div className="chips">
+            <button type="button" className="chip-btn" aria-pressed={draft.mode === 'auto'} onClick={() => setMode('auto')}>
+              El agente, con mi calendario
+            </button>
+            <button type="button" className="chip-btn" aria-pressed={draft.mode === 'manual'} onClick={() => setMode('manual')}>
+              Lo elijo yo
+            </button>
+          </div>
+        </fieldset>
         <fieldset>
           <legend>Horario del gym</legend>
           <div className="time-pair">
@@ -168,42 +210,60 @@ export default function SessionSetup({
             />
           </div>
         </fieldset>
-        <fieldset className="span-2">
-          <legend>Split</legend>
-          <div className="chips">
-            {SPLITS.map((s) => (
-              <button key={s.id} type="button" className="chip-btn" aria-pressed={draft.split.id === s.id} onClick={() => setSplit(s.id)}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Duración de la sesión</legend>
-          <div className="chips">
-            {SESSION_OPTIONS.map((m) => (
-              <button key={m} type="button" className="chip-btn" aria-pressed={draft.sessionMin === m} onClick={() => set({ sessionMin: m })}>
-                {m} min
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Sesiones por semana</legend>
-          <div className="chips">
-            {getSplit(draft.split.id).variants.map((n) => (
-              <button
-                key={n}
-                type="button"
-                className="chip-btn"
-                aria-pressed={draft.split.sessions === n}
-                onClick={() => set({ split: { ...draft.split, sessions: n }, perWeek: n })}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        {draft.mode === 'auto' ? (
+          <fieldset className="span-2">
+            <legend>Veces por semana</legend>
+            <div className="chips">
+              {PER_WEEK_OPTIONS.map((n) => (
+                <button key={n} type="button" className="chip-btn" aria-pressed={draft.perWeek === n} onClick={() => set({ perWeek: n })}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p className="fineprint" style={{ margin: '0.4rem 0 0' }}>
+              El agente elige el split y cuánto dura cada sesión según los huecos de tu calendario.
+            </p>
+          </fieldset>
+        ) : (
+          <>
+            <fieldset className="span-2">
+              <legend>Split</legend>
+              <div className="chips">
+                {SPLITS.map((s) => (
+                  <button key={s.id} type="button" className="chip-btn" aria-pressed={draft.split.id === s.id} onClick={() => setSplit(s.id)}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Duración de la sesión</legend>
+              <div className="chips">
+                {SESSION_OPTIONS.map((m) => (
+                  <button key={m} type="button" className="chip-btn" aria-pressed={draft.sessionMin === m} onClick={() => set({ sessionMin: m })}>
+                    {m} min
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Sesiones por semana</legend>
+              <div className="chips">
+                {getSplit(draft.split.id).variants.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className="chip-btn"
+                    aria-pressed={draft.split.sessions === n}
+                    onClick={() => set({ split: { ...draft.split, sessions: n }, perWeek: n })}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </>
+        )}
         <fieldset className="span-2">
           <legend>Días posibles</legend>
           <div className="chips">
@@ -238,7 +298,7 @@ export default function SessionSetup({
           ¿Tu gym abre de {prefs.gymHours.open} a {prefs.gymHours.close}?
         </h2>
         <div className="setup-actions">
-          <button className="btn btn-primary" onClick={() => setStep('ask-duration')}>
+          <button className="btn btn-primary" onClick={() => setStep('ask-frequency')}>
             Sí, ese es
           </button>
           <button className="btn" onClick={openEditor}>
@@ -250,49 +310,27 @@ export default function SessionSetup({
     );
   }
 
-  if (step === 'ask-duration') {
+  if (step === 'ask-frequency') {
     return (
       <section className="panel setup" aria-label="Tu sesión">
-        <div className="eyebrow">Dos más y listo</div>
-        <h2 className="display setup-q">¿Cuánto dura tu sesión?</h2>
-        <div className="chips" role="group" aria-label="Duración de la sesión">
-          {SESSION_OPTIONS.map((m) => (
+        <div className="eyebrow">Una más y listo</div>
+        <h2 className="display setup-q">¿Cuántas veces por semana quieres ir?</h2>
+        <div className="chips" role="group" aria-label="Veces por semana">
+          {PER_WEEK_OPTIONS.map((n) => (
             <button
-              key={m}
+              key={n}
               className="chip-btn"
-              aria-pressed={draft.sessionMin === m}
-              onClick={() => {
-                set({ sessionMin: m });
-                setStep('ask-split');
-              }}
+              aria-pressed={draft.perWeek === n}
+              disabled={saving}
+              onClick={() => save({ ...draft, mode: 'auto', perWeek: n })}
             >
-              {m} min
+              {n === 1 ? '1 vez' : `${n} veces`}
             </button>
           ))}
         </div>
-      </section>
-    );
-  }
-
-  if (step === 'ask-split') {
-    return (
-      <section className="panel setup" aria-label="Tu sesión">
-        <div className="eyebrow">La última</div>
-        <h2 className="display setup-q">¿Cómo divides tu semana?</h2>
-        <div className="split-options" role="group" aria-label="Split">
-          {SPLITS.map((s) => {
-            const n = defaultSessions(s.id);
-            return (
-              <button key={s.id} className="split-option" disabled={saving} onClick={() => save(withSplit(draft, { id: s.id, sessions: n }))}>
-                <span className="split-option-name">{s.label}</span>
-                <span className="split-option-blurb">{s.blurb}</span>
-                <span className="split-option-n">{sessionsText(n)}</span>
-              </button>
-            );
-          })}
-        </div>
         <p className="fineprint" style={{ margin: 0 }}>
-          Las sesiones por semana y los días los puedes ajustar después.
+          El agente mira tu calendario y elige el split, cuánto dura cada sesión y qué días, para que tus 8 grupos
+          musculares entren al menos una vez por semana.
         </p>
       </section>
     );
@@ -317,8 +355,17 @@ export default function SessionSetup({
       </div>
       {saveNote && <p className="notice small" style={{ margin: 0 }}>{saveNote}</p>}
 
-      {!restWeek && !weekOver && (
-        <SplitWeek choice={prefs.split} plan={plan} paused={paused} onResume={onResume} alternative={alternative} weekTitle={weekTitle} />
+      {!restWeek && !weekOver && planChoice && (
+        <SplitWeek
+          choice={planChoice}
+          sessionMin={planSessionMin}
+          plan={plan}
+          paused={paused}
+          onResume={onResume}
+          alternative={alternative}
+          weekTitle={weekTitle}
+          auto={prefs.mode === 'auto' ? { perWeek: prefs.perWeek, decision, locked: planLocked } : null}
+        />
       )}
 
       <div>
