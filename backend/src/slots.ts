@@ -6,22 +6,50 @@ export const PREFERRED_DAYS = [1, 3, 5];
 const MIN_LEAD_MS = 60 * 60 * 1000;
 const DURATION_MS = 40 * 60 * 1000;
 
+/** Intervalo ocupado del calendario real (ms epoch). */
+export interface Busy {
+  start: number;
+  end: number;
+}
+
 function overlaps(candidate: Date, taken: Date[]): boolean {
   return taken.some((t) => Math.abs(t.getTime() - candidate.getTime()) < DURATION_MS);
 }
 
-/** Próximos `count` slots dentro de la ventana real de la usuaria. */
-export function nextSlots(user: User, after: Date, count: number, taken: Date[] = []): Date[] {
-  const { hour, minute } = parseHHMM(user.preferredTime);
+function isBusy(candidate: Date, busy: Busy[]): boolean {
+  const s = candidate.getTime();
+  return busy.some((b) => s < b.end && s + DURATION_MS > b.start);
+}
+
+/** Horas de inicio probadas dentro de la ventana (cada 30 min desde la preferida, sin pasarse del fin). */
+function startTimes(user: User): Array<{ hour: number; minute: number }> {
+  const pref = parseHHMM(user.preferredTime);
+  const end = parseHHMM(user.window.end);
+  const out: Array<{ hour: number; minute: number }> = [];
+  for (let m = pref.hour * 60 + pref.minute; m + 40 <= end.hour * 60 + end.minute; m += 30) {
+    out.push({ hour: Math.floor(m / 60), minute: m % 60 });
+  }
+  return out.length ? out : [pref];
+}
+
+/**
+ * Próximos `count` slots dentro de la ventana real de la usuaria. Si hay calendario conectado,
+ * esquiva los bloques ocupados probando horas alternativas dentro de la ventana.
+ */
+export function nextSlots(user: User, after: Date, count: number, taken: Date[] = [], busy: Busy[] = []): Date[] {
+  const times = startTimes(user);
   const start = localParts(after);
   const out: Date[] = [];
   for (let i = 0; i < 28 && out.length < count; i++) {
     const day = addDays(start, i);
     if (!PREFERRED_DAYS.includes(day.weekday)) continue;
-    const slot = zonedToUtc(day.year, day.month, day.day, hour, minute);
-    if (slot.getTime() < after.getTime() + MIN_LEAD_MS) continue;
-    if (overlaps(slot, taken)) continue;
-    out.push(slot);
+    for (const t of times) {
+      const slot = zonedToUtc(day.year, day.month, day.day, t.hour, t.minute);
+      if (slot.getTime() < after.getTime() + MIN_LEAD_MS) continue;
+      if (overlaps(slot, taken) || isBusy(slot, busy)) continue;
+      out.push(slot);
+      break;
+    }
   }
   return out;
 }
@@ -30,7 +58,7 @@ export function nextSlots(user: User, after: Date, count: number, taken: Date[] 
  * Re-negociación de ventana (regla anti-snooze): se ofrece algo DISTINTO al slot que
  * no está funcionando — martes 20:30 o sábado 11:00.
  */
-export function renegotiationSlots(after: Date, taken: Date[] = []): Date[] {
+export function renegotiationSlots(after: Date, taken: Date[] = [], busy: Busy[] = []): Date[] {
   const start = localParts(after);
   const wants: Array<{ weekday: number; hour: number; minute: number }> = [
     { weekday: 2, hour: 20, minute: 30 },
@@ -42,7 +70,7 @@ export function renegotiationSlots(after: Date, taken: Date[] = []): Date[] {
       const day = addDays(start, i);
       if (day.weekday !== w.weekday) continue;
       const slot = zonedToUtc(day.year, day.month, day.day, w.hour, w.minute);
-      if (slot.getTime() < after.getTime() + MIN_LEAD_MS || overlaps(slot, taken)) continue;
+      if (slot.getTime() < after.getTime() + MIN_LEAD_MS || overlaps(slot, taken) || isBusy(slot, busy)) continue;
       out.push(slot);
       break;
     }

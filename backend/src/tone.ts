@@ -54,6 +54,10 @@ export const T = {
   noAppointment: () => 'Todavía no tienes una cita agendada esta semana. ¿Te propongo horarios?',
   fallback: () => 'Te ayudo con una sola cosa: tu cita. Puedes decirme "mueve", "listo" o una hora, por ejemplo "miércoles 20:00".',
   start: () => 'Hola. Soy La Cita: te ayudo a dejar agendada tu hora de entrenar y a moverla cuando la pega se alarga.',
+  connect: () => 'Conecta tu Google Calendar y dejo la cita directo en tu calendario, la muevo cuando me avises y busco horarios que no choquen con tus reuniones.',
+  calendarConnected: () => 'Listo, quedó conectado tu Google Calendar. Desde ahora agendo y muevo tus citas ahí, y propongo horas que no choquen con tus reuniones.',
+  alreadyConnected: () => 'Tu Google Calendar ya está conectado.',
+  calendarUnavailable: () => 'Por ahora no puedo conectar tu calendario. Igual te dejo cada cita con el botón para agregarla.',
   proposeOffer: () => 'Te propongo horarios para esta semana.',
   btn: {
     otherHour: 'Otra hora',

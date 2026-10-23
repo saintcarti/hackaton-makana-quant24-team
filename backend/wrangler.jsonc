@@ -14,6 +14,7 @@
   "vars": {
     "GYM_VENUE": "tu gym de Ñuñoa",
     "CF_AI_MODEL": "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
-    "CORS_ORIGIN": ""
+    "CORS_ORIGIN": "",
+    "PUBLIC_URL": "https://la-cita-api.x-liberona.workers.dev"
   }
 }

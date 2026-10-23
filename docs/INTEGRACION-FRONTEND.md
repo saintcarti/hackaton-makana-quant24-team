@@ -64,8 +64,8 @@ const { replies, user, now } = await res.json() as MessagesPost;
 }
 ```
 
-- `buttons` puede faltar. Pinta cada botón con su `label`; al tocarlo, envía su `action` sin modificarlo.
-- `attachment` (`kind: "ics"`) aparece cuando se agenda o mueve una cita. Muestra un botón «Agregar a mi calendario» que abra `API + attachment.url`; el navegador descarga el `.ics`.
+- `buttons` puede faltar. Pinta cada botón con su `label`; al tocarlo, envía su `action` sin modificarlo. **Si el botón trae `url`, es un enlace** (p. ej. «📅 Conectar mi calendario»): ábrelo en una pestaña nueva y no envíes nada al backend.
+- `attachment` (`kind: "ics"`) aparece cuando se agenda o mueve una cita. Ofrece dos botones: «Agregar a Google Calendar», que abre `attachment.gcalUrl` en una pestaña nueva (el evento llega prellenado), y «Descargar .ics», que abre `API + attachment.url`.
 - Mensajes con `dir: "in"` son los de la usuaria (para reconstruir el historial al recargar).
 
 ### Cargar el historial y actualizarse en vivo
@@ -168,6 +168,20 @@ Todas son `POST`, cuerpo opcional, y devuelven `{ appointment, replies, now }`.
 | POST | `/users` | Crea un usuario sintético `{ name?, gym?, monthlyFee? }` |
 | GET | `/meta` | Zona horaria, `demoUserId`, hora actual del backend, si Telegram está activo |
 | GET | `/health` | `{ ok: true }` |
+
+### Google Calendar (conexión real)
+
+Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendario, la mueve cuando ella pide «mueve» y propone horarios que no chocan con sus reuniones. El front solo ofrece el enlace de conexión.
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/users/:id/google` | `GoogleStatus`: `{ configured, connected, connectUrl }` |
+| GET | `/google/connect?userId=:id` | Redirige a Google para autorizar. Abre `connectUrl` en una pestaña nueva; al terminar, Google devuelve a una página «Calendario conectado» |
+| POST | `/users/:id/google/disconnect` | Desconecta el calendario |
+| POST | `/google/demo-events` (admin) | `{ userId }`: siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas) |
+| POST | `/google/demo-events/clear` (admin) | `{ userId }`: borra esos eventos de demo |
+
+Tras conectar, el backend manda un mensaje al chat («Listo, quedó conectado tu Google Calendar…»), que aparece en el siguiente polling. El token de Google nunca sale del backend. La conexión funciona solo para usuarias de prueba autorizadas en el proyecto de Google (modo «En pruebas»).
 
 ### Demo y scheduler (piden `x-admin-token` si está configurado)
 

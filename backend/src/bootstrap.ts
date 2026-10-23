@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Engine } from './engine.js';
+import { googleConfigFromEnv } from './google.js';
 import { AiRunner, WorkersAiParser, aiOptionsFromEnv, restRunner } from './intent.js';
 import { Store, storeFromEnv } from './store.js';
 
@@ -17,6 +18,7 @@ export function createEngine(opts: { env: EnvVars; store: Store; ai?: AiRunner |
     store: opts.store,
     telegram: env.TELEGRAM_BOT_TOKEN ? new TelegramChannel(env.TELEGRAM_BOT_TOKEN) : null,
     parser: opts.ai ? new WorkersAiParser(opts.ai, model, aiOpts) : null,
+    google: googleConfigFromEnv(env),
     config: env.GYM_VENUE ? { venue: env.GYM_VENUE } : {},
   });
   const app = createApp(engine, {

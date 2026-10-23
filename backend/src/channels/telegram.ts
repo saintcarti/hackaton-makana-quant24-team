@@ -23,10 +23,11 @@ export class TelegramChannel {
 
   /** Botones en filas: los de horario de a 2, el resto de a 1. callback_data <= 64 bytes. */
   static keyboard(buttons: Button[]) {
-    const rows: Array<Array<{ text: string; callback_data: string }>> = [];
-    let row: Array<{ text: string; callback_data: string }> = [];
+    type Btn = { text: string; callback_data?: string; url?: string };
+    const rows: Btn[][] = [];
+    let row: Btn[] = [];
     for (const b of buttons) {
-      row.push({ text: b.label, callback_data: b.action.slice(0, 64) });
+      row.push(b.url ? { text: b.label, url: b.url } : { text: b.label, callback_data: b.action.slice(0, 64) });
       if (row.length === 2 || !b.action.startsWith('slot:')) {
         rows.push(row);
         row = [];

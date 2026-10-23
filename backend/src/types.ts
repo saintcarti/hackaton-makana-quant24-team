@@ -55,6 +55,8 @@ export interface Appointment {
   /** Opciones ofrecidas en la captura (ISO). */
   options: string[];
   moves: Move[];
+  /** Id del evento en Google Calendar (si hay calendario conectado). */
+  eventId?: string;
   /** Lunes local de la semana ("YYYY-MM-DD"). */
   weekOf: string;
   createdAt: string;
@@ -63,8 +65,10 @@ export interface Appointment {
 
 export interface Button {
   label: string;
-  /** Valor que el front devuelve a POST /users/:id/messages {action}. */
+  /** Valor que el front devuelve a POST /users/:id/messages {action}. Vacío si el botón es un enlace. */
   action: string;
+  /** Si existe, es un botón-enlace: ábrelo en una pestaña nueva en vez de enviar `action`. */
+  url?: string;
 }
 
 export interface Attachment {
@@ -111,12 +115,25 @@ export interface EventRec {
   data?: Record<string, unknown>;
 }
 
+/** Conexión OAuth con el Google Calendar de una usuaria. NUNCA se expone por la API. */
+export interface GoogleLink {
+  refreshToken: string;
+  accessToken?: string;
+  /** ms epoch */
+  expiresAt?: number;
+  connectedAt: string;
+  /** Caché de bloques ocupados (ms epoch) para no consultar en cada mensaje. */
+  busyCache?: { at: number; intervals: Array<[number, number]> };
+}
+
 export interface DB {
   users: Record<string, User>;
   appointments: Record<string, Appointment>;
   messages: Message[];
   events: EventRec[];
   seq: number;
+  /** Conexiones de Google Calendar por usuaria (secretos: no exponer). */
+  google?: Record<string, GoogleLink>;
   /** Offset del reloj de demo en ms (0 = reloj real). */
   clockOffsetMs: number;
 }
@@ -127,5 +144,6 @@ export const emptyDB = (): DB => ({
   messages: [],
   events: [],
   seq: 0,
+  google: {},
   clockOffsetMs: 0,
 });

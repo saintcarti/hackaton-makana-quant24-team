@@ -1,4 +1,4 @@
-export type Intent = 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'other_hour' | 'unknown';
+export type Intent = 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
 const MOVE =
@@ -6,6 +6,7 @@ const MOVE =
 const DONE = /\b(listo|list[ao]|ya fui|fui|hecho|termin[eé]|entren[eé]|cumpl[ií])\b/;
 const SKIP = /\b(esta semana no|semana no|no esta semana|me tomo la semana|descanso esta semana)\b/;
 const START = /^\s*(\/start\b|hola\b|buenas\b|empezar|comenzar)/;
+const CONNECT = /(conect|vincul|enlaz|sincroniz)\w*.*calendar|calendar\w*.*(conect|vincul|enlaz|sincroniz)|^\s*\/?(conectar|calendario)\s*$/;
 const PROPOSE = /\b(proponme|prop[oó]n|horarios|agenda(me)?)\b/;
 
 /**
@@ -16,6 +17,7 @@ export function classifyByRules(text: string): Intent {
   const t = text.toLowerCase().trim();
   if (!t) return 'unknown';
   if (PAIN.test(t)) return 'pain';
+  if (CONNECT.test(t)) return 'connect';
   if (SKIP.test(t)) return 'skip_week';
   if (START.test(t)) return 'start';
   if (DONE.test(t) && !MOVE.test(t)) return 'done';

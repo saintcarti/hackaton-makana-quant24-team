@@ -7,8 +7,10 @@ export type ApptStatus = 'proposed' | 'confirmed' | 'reminded' | 'done' | 'lapse
 
 export interface Button {
   label: string;
-  /** Devuélvelo tal cual en POST /api/users/:id/messages { action, label }. */
+  /** Devuélvelo tal cual en POST /api/users/:id/messages { action, label }. Vacío si es un botón-enlace. */
   action: string;
+  /** Si existe, es un botón-enlace (p. ej. "Conectar mi calendario"): ábrelo en una pestaña nueva y NO envíes `action`. */
+  url?: string;
 }
 
 export interface Attachment {
@@ -141,3 +143,12 @@ export interface Meta {
 }
 
 export type ClockPreset = 'sunday-20' | 'sunday-2330' | 'monday-1830' | 'monday-2000';
+
+export interface GoogleStatus {
+  /** El backend tiene credenciales de Google configuradas. */
+  configured: boolean;
+  /** La usuaria ya conectó su Google Calendar. */
+  connected: boolean;
+  /** Enlace para iniciar la conexión (abrir en pestaña nueva). Null si no está configurado. */
+  connectUrl: string | null;
+}
