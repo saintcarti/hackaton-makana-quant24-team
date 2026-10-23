@@ -1,6 +1,7 @@
-export type Intent = 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
+export type Intent = 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
+const RESUME = /\b(ya|lo)\b.*\b(convers|habl|consult|vi|fui|revis)\w*\b.*\b(kinesi\w*|m[eé]dic\w*|deport[oó]log\w*|profesional)\b/;
 const MOVE =
   /\b(mueve|mover|mu[eé]vela|muevela|cambia(la|r)?|reagenda|re-agenda|hoy no (puedo|alcanzo|voy)|no puedo|no alcanzo|se alarg[oó]|se alargaron?|junta|reuni[oó]n|me quedo trabajando|otro d[ií]a|m[aá]s tarde)\b/;
 const DONE = /\b(listo|list[ao]|ya fui|fui|hecho|termin[eé]|entren[eé]|cumpl[ií])\b/;
@@ -17,6 +18,7 @@ export function classifyByRules(text: string): Intent {
   const t = text.toLowerCase().trim();
   if (!t) return 'unknown';
   if (PAIN.test(t)) return 'pain';
+  if (RESUME.test(t)) return 'resume';
   if (CONNECT.test(t)) return 'connect';
   if (SKIP.test(t)) return 'skip_week';
   if (START.test(t)) return 'start';

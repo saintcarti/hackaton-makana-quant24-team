@@ -12,7 +12,7 @@ export function buildIcs(appt: Appointment, user: User, now: Date = new Date()):
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//La Cita//Hackaton Senales//ES',
+    'PRODID:-//gogym//Hackaton Senales//ES',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
@@ -20,7 +20,7 @@ export function buildIcs(appt: Appointment, user: User, now: Date = new Date()):
     `DTSTAMP:${fmt(now)}`,
     `DTSTART:${fmt(start)}`,
     `DTEND:${fmt(end)}`,
-    `SUMMARY:${esc('La Cita contigo')}`,
+    `SUMMARY:${esc('Tu cita contigo · gogym')}`,
     `LOCATION:${esc(`${appt.venue} (${user.gym})`)}`,
     `DESCRIPTION:${esc(`${appt.durationMin} min · ${appt.content}. Si se alarga la reunión, la movemos sin drama.`)}`,
     'BEGIN:VALARM',
@@ -41,7 +41,7 @@ export function googleCalendarUrl(appt: Appointment, user: User): string {
   const end = new Date(start.getTime() + appt.durationMin * 60000);
   const q = new URLSearchParams({
     action: 'TEMPLATE',
-    text: 'La Cita contigo',
+    text: 'Tu cita contigo · gogym',
     dates: `${fmt(start)}/${fmt(end)}`,
     details: `${appt.durationMin} min · ${appt.content}. Si se alarga la reunión, la movemos sin drama.`,
     location: `${appt.venue} (${user.gym})`,

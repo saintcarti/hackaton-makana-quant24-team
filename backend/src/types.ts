@@ -22,6 +22,10 @@ export interface User {
   perWeek?: number;
   /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
   days?: number[];
+  /** Split elegido (grupos musculares por sesión). Sin ejercicios, series ni repeticiones. */
+  split?: { id: string; sessions: number };
+  /** R4: ISO del último mensaje de dolor. Mientras exista no se asigna foco a las citas. */
+  painPause?: string;
   synthetic: boolean;
   /** MUEVEs seguidos sin visita (regla anti-snooze). */
   consecutiveMoves: number;
@@ -65,6 +69,8 @@ export interface Appointment {
   moves: Move[];
   /** Id del evento en Google Calendar (si hay calendario conectado). */
   eventId?: string;
+  /** Foco de la sesión según el split de la usuaria (solo grupos, R4). Ausente sin split o mientras dure la pausa por dolor. */
+  focus?: { dayTypeId: string; label: string; groups: string[] };
   /** Lunes local de la semana ("YYYY-MM-DD"). */
   weekOf: string;
   createdAt: string;

@@ -85,3 +85,20 @@ describe('disponibilidad informada por el front (POST /busy)', () => {
     expect((await capture(app)).options[0]).toBe(first);
   });
 });
+
+describe('reset del demo y Google', () => {
+  it('conserva la conexión de Google salvo que se pida lo contrario', async () => {
+    const engine = new Engine({ store: new MemoryStore() });
+    const app = createApp(engine, {});
+    await app.request('/api/demo/reset', send('POST', {}));
+    await engine.run((c) =>
+      engine.connectGoogle(c, DEMO_USER_ID, { refreshToken: 'r', connectedAt: new Date().toISOString(), busyCache: { at: 1, intervals: [[1, 2]] } }),
+    );
+    await app.request('/api/demo/reset', send('POST', {}));
+    const link = await engine.read((c) => c.db.google?.[DEMO_USER_ID]);
+    expect(link?.refreshToken).toBe('r');
+    expect(link?.busyCache).toBeUndefined();
+    await app.request('/api/demo/reset', send('POST', { keepGoogle: false }));
+    expect(await engine.read((c) => c.db.google?.[DEMO_USER_ID])).toBeUndefined();
+  });
+});

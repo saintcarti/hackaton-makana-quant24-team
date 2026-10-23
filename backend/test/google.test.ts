@@ -137,3 +137,24 @@ describe('mensajes de calendario', () => {
     expect(classifyByRules('hoy no puedo, la reunión')).toBe('move');
   });
 });
+
+describe('token rechazado por Google', () => {
+  it('refresca y reintenta una vez ante un 401', async () => {
+    const { withToken } = await import('../src/google.js');
+    const cfg = { clientId: 'c', clientSecret: 's', publicUrl: 'https://x.test' };
+    const link = { refreshToken: 'r', accessToken: 'viejo', expiresAt: Date.now() + 3_600_000, connectedAt: '' };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ access_token: 'nuevo', expires_in: 3600 }), { status: 200 }));
+    try {
+      const seen: string[] = [];
+      const out = await withToken(cfg, link, Date.now(), async (t) => {
+        seen.push(t);
+        if (t === 'viejo') throw new Error('Calendar events 401: Invalid Credentials');
+        return 'ok';
+      });
+      expect(out).toBe('ok');
+      expect(seen).toEqual(['viejo', 'nuevo']);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});

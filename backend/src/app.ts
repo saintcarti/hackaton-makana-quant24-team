@@ -3,8 +3,9 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
-import { accessToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
+import { accessToken, withToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
+import { isValidChoice } from './splits.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
 import { addDays, localParts, mondayOf, TZ, zonedToUtc } from './time.js';
 import { apptView, calendarWeek, metrics, userAppointments, userSummary } from './views.js';
@@ -79,10 +80,13 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
 
   // ───────────── demo ─────────────
   app.post('/api/demo/reset', requireAdmin, async (c) => {
-    const body = z.object({ seed: z.boolean().default(true), now: z.string().datetime().optional() }).parse(await c.req.json().catch(() => ({})));
+    const body = z.object({ seed: z.boolean().default(true), now: z.string().datetime().optional(), keepGoogle: z.boolean().default(true) }).parse(await c.req.json().catch(() => ({})));
     const out = await engine.run((x) => {
       const now = body.now ? new Date(body.now) : new Date();
+      const links = x.db.google ?? {};
       x.db = freshDB(now, body.seed);
+      // Las conexiones de Google sobreviven al reset (se reconectaría con una autorización manual); el caché de ocupación no.
+      if (body.keepGoogle) x.db.google = Object.fromEntries(Object.entries(links).map(([id, l]) => [id, { ...l, busyCache: undefined }]));
       x.db.clockOffsetMs = body.now ? now.getTime() - Date.now() : 0;
       x.now = new Date(Date.now() + x.db.clockOffsetMs);
       return { demoUserId: body.seed ? DEMO_USER_ID : null, now: x.now.toISOString() };
@@ -142,6 +146,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
       perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
       days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+      split: z.object({ id: z.enum(['fullbody', 'upper-lower', 'ppl', 'torso-piernas-brazos', 'cinco-dias']), sessions: z.number().int() }).optional(),
     })
     .strict();
 
@@ -154,7 +159,15 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     };
     check(prefs.gymHours);
     check(prefs.window);
-    const user = await engine.run((x) => engine.setPreferences(x, c.req.param('id'), prefs));
+    if (prefs.split && !isValidChoice(prefs.split)) {
+      throw new DomainError('invalid_split', `El split ${prefs.split.id} no admite ${prefs.split.sessions} sesiones por semana`, 400);
+    }
+    const { split, ...rest } = prefs;
+    const user = await engine.run((x) => {
+      const u = engine.setPreferences(x, c.req.param('id'), rest);
+      if (split) engine.setSplit(x, u.id, split);
+      return u;
+    });
     return c.json({ user });
   });
 
@@ -358,7 +371,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       const link = x.db.google?.[id];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
       try {
-        const events = await listEvents(await accessToken(g, link, x.now.getTime()), x.now.getTime(), x.now.getTime() + 21 * 86400_000);
+        const events = await withToken(g, link, x.now.getTime(), (t) => listEvents(t, x.now.getTime(), x.now.getTime() + 21 * 86400_000));
         return { events };
       } catch (err) {
         throw new DomainError('google_calendar', (err as Error).message, 502);
@@ -421,7 +434,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const out = await engine.run(async (x) => {
       const link = x.db.google?.[userId];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
-      const deleted = await clearDemoEvents(await accessToken(g, link, x.now.getTime()));
+      const deleted = await withToken(g, link, x.now.getTime(), clearDemoEvents);
       link.busyCache = undefined;
       return { deleted };
     });
