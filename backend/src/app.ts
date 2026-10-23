@@ -73,6 +73,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
         clockSimulated: x.db.clockOffsetMs !== 0,
         channels: ['sim', 'telegram'],
         telegramEnabled: !!engine.telegram,
+        googleConfigured: !!engine.google,
         users: Object.keys(x.db.users).length,
       })),
     ),

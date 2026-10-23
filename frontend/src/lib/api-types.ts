@@ -172,6 +172,8 @@ export interface Meta {
   clockSimulated: boolean;
   channels: string[];
   telegramEnabled: boolean;
+  /** El backend tiene credenciales de Google: la conexión del calendario se hace en el servidor (GET /users/:id/google). */
+  googleConfigured?: boolean;
   users: number;
 }
 
