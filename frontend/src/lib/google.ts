@@ -115,6 +115,9 @@ export interface CalendarEvent {
   start: Date;
   end: Date;
   allDay: boolean;
+  /** Solo en eventos de día completo: fechas "YYYY-MM-DD" tal como vienen de Google (el fin es exclusivo). */
+  allDayStart?: string;
+  allDayEnd?: string;
 }
 
 export async function fetchEvents(session: GoogleSession, from: Date, to: Date): Promise<CalendarEvent[]> {
@@ -150,5 +153,7 @@ export async function fetchEvents(session: GoogleSession, from: Date, to: Date):
       start: new Date(e.start.dateTime ?? `${e.start.date}T00:00:00`),
       end: new Date(e.end.dateTime ?? `${e.end.date}T00:00:00`),
       allDay: !e.start.dateTime,
+      allDayStart: e.start.dateTime ? undefined : e.start.date,
+      allDayEnd: e.end.dateTime ? undefined : e.end.date,
     }));
 }

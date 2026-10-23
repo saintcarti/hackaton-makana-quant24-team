@@ -1,6 +1,7 @@
 import type { CalendarWeek } from '../lib/api-types';
 import { DAY_MINUTES, layoutLanes, type Segment } from '../lib/calendar';
 import { capitalize, hhmmToMinutes, santiagoParts } from '../lib/format';
+import { endToMinutes } from '../lib/prefs';
 
 export type GoogleState = 'off' | 'loading' | 'on' | 'error';
 
@@ -110,7 +111,7 @@ export default function WeekCalendar({
   const winStart = gymWindow ? hhmmToMinutes(gymWindow.start) : null;
   const winEnd = gymWindow ? hhmmToMinutes(gymWindow.end) : null;
   const gymOpen = gymHours ? hhmmToMinutes(gymHours.open) : null;
-  const gymClose = gymHours ? hhmmToMinutes(gymHours.close) : null;
+  const gymClose = gymHours ? endToMinutes(gymHours.close) : null;
   const closedBands: Array<{ start: number; end: number }> = [];
   if (gymOpen !== null && gymOpen > from) closedBands.push({ start: from, end: gymOpen });
   if (gymClose !== null && gymClose < to) closedBands.push({ start: gymClose, end: to });
@@ -157,7 +158,8 @@ export default function WeekCalendar({
         )}
         {closedBands.length > 0 && gymHours && (
           <span>
-            <i className="sw sw-closed" /> Gym cerrado (fuera del horario {gymHours.open}–{gymHours.close})
+            <i className="sw sw-closed" /> Gym cerrado (fuera del horario {gymHours.open}–
+            {gymHours.close === '00:00' ? '24:00' : gymHours.close})
           </span>
         )}
         <span style={{ flex: 1 }} />

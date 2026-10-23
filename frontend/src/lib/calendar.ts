@@ -35,6 +35,23 @@ export function toSegments(events: CalendarEvent[], days: CalendarWeek['days']):
   return out;
 }
 
+/**
+ * Eventos de día completo marcados como ocupados → un tramo 00:00–24:00 por cada fecha que cubren.
+ * La grilla no los dibuja (no son horas), pero el cálculo de dónde cabe sí tiene que respetarlos.
+ */
+export function allDaySegments(events: CalendarEvent[], days: CalendarWeek['days']): Segment[] {
+  const out: Segment[] = [];
+  for (const e of events) {
+    if (!e.allDay || !e.allDayStart || !e.allDayEnd) continue;
+    days.forEach((d, dayIndex) => {
+      if (d.date >= e.allDayStart! && d.date < e.allDayEnd!) {
+        out.push({ key: `${e.id}:${d.date}:dia`, title: e.title, dayIndex, startMin: 0, endMin: DAY_MINUTES });
+      }
+    });
+  }
+  return out;
+}
+
 /** Eventos simultáneos lado a lado: carriles dentro de cada grupo de solapamiento. Recibe los tramos de UN día. */
 function layoutDay(segs: Segment[]): Placed[] {
   const out: Placed[] = [];

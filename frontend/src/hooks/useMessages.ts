@@ -43,6 +43,10 @@ export function useMessages(userId: string | null) {
   const reset = useCallback(() => {
     epoch.current += 1;
     setMessages([]);
+    // Tras «Preparar a Camila» el 404 previo ya no aplica: el próximo polling confirma el estado real.
+    setError(null);
+    setErrorStatus(null);
+    setLoaded(false);
   }, []);
 
   useEffect(() => {

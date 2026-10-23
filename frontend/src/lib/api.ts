@@ -27,17 +27,18 @@ export function apiBaseOverride(): string {
 }
 
 /**
- * Deja la URL base tal como la usa el cliente: sin barras finales ni un "/api" final (el cliente ya lo agrega).
+ * Deja la URL base tal como la usa el cliente: sin query, sin fragmento, sin barras finales y sin "/api…"
+ * (el cliente ya agrega "/api"; así sirve pegar también "…/api/health", que es lo que imprime el backend).
  * Devuelve '' para vacío y null si no es una URL http(s) válida.
  */
 export function normalizeApiBase(url: string): string | null {
-  let clean = trimSlash(url.trim());
-  if (!clean) return '';
-  clean = trimSlash(clean.replace(/\/api$/i, ''));
+  const raw = url.trim();
+  if (!raw) return '';
   try {
-    const u = new URL(clean);
+    const u = new URL(raw);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    return trimSlash(`${u.origin}${u.pathname}`);
+    const path = trimSlash(u.pathname.replace(/\/api(\/.*)?$/i, ''));
+    return trimSlash(`${u.origin}${path}`);
   } catch {
     return null;
   }

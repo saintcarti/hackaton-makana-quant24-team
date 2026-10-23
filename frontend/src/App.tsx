@@ -10,9 +10,9 @@ import WeekCalendar, { type GoogleState, type Suggestion } from './components/We
 import { useMessages } from './hooks/useMessages';
 import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
 import type { AppointmentView, CalendarWeek, Summary, User } from './lib/api-types';
-import { toSegments } from './lib/calendar';
-import { fitWeek, pickSuggestions, type TakenInterval } from './lib/fit';
-import { addDaysISO, santiagoParts } from './lib/format';
+import { allDaySegments, toSegments } from './lib/calendar';
+import { fitWeek, pickSuggestions, type MovedFrom, type TakenInterval } from './lib/fit';
+import { addDaysISO, santiagoParts, santiagoToDate } from './lib/format';
 import {
   fetchEvents,
   googleClientId,
@@ -22,7 +22,7 @@ import {
   type CalendarEvent,
   type GoogleSession,
 } from './lib/google';
-import { loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
+import { clearPrefsLocal, loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
 import { SAMPLE_LABEL, sampleWorkWeek } from './lib/sampleCalendar';
 
 const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) || undefined;
@@ -63,6 +63,20 @@ function writeDemoFlag(on: boolean) {
 /** Sin conexión de verdad: red caída o el servidor falló. Un 404 (usuaria inexistente) es otra cosa. */
 const isOffline = (status: number | null) => status !== null && (status === 0 || status >= 500);
 
+/** Horas ocupadas para entregar al agente: tramos con hora y días completos (en Santiago), nunca títulos. */
+function busyIntervals(evs: CalendarEvent[]) {
+  return evs.flatMap((e) => {
+    if (!e.allDay) return [{ start: e.start.toISOString(), end: e.end.toISOString() }];
+    if (!e.allDayStart || !e.allDayEnd) return [];
+    return [
+      {
+        start: santiagoToDate(e.allDayStart, '00:00').toISOString(),
+        end: santiagoToDate(e.allDayEnd, '00:00').toISOString(),
+      },
+    ];
+  });
+}
+
 export default function App() {
   const [entered, setEntered] = useState(readDemoFlag);
   const [google, setGoogle] = useState<GoogleSession | null>(null);
@@ -89,6 +103,8 @@ export default function App() {
 
   const [prefsVersion, setPrefsVersion] = useState(0);
   const [prefsNote, setPrefsNote] = useState<string | null>(null);
+  // Sube con cada «Preparar a Camila»: la tarjeta de sesión se rearma y vuelve a la primera pregunta.
+  const [setupEpoch, setSetupEpoch] = useState(0);
   const [preparing, setPreparing] = useState(false);
 
   const [view, setView] = useState<'camila' | 'equipo'>('camila');
@@ -231,13 +247,7 @@ export default function App() {
         setGState('on');
         setGNote(evs.length ? null : 'Sin eventos en Google esta semana');
         // Entrega al agente solo las horas ocupadas (sin títulos). Si el backend aún no tiene el endpoint, no pasa nada.
-        api
-          .syncBusy(
-            userId,
-            cal.weekOf,
-            evs.filter((e) => !e.allDay).map((e) => ({ start: e.start.toISOString(), end: e.end.toISOString() })),
-          )
-          .catch(() => undefined);
+        api.syncBusy(userId, cal.weekOf, busyIntervals(evs)).catch(() => undefined);
       })
       .catch((e) => {
         if (!alive) return;
@@ -260,13 +270,7 @@ export default function App() {
     }
     const evs = sampleWorkWeek(cal.weekOf);
     setEvents(evs);
-    api
-      .syncBusy(
-        userId,
-        cal.weekOf,
-        evs.map((e) => ({ start: e.start.toISOString(), end: e.end.toISOString() })),
-      )
-      .catch(() => undefined);
+    api.syncBusy(userId, cal.weekOf, busyIntervals(evs)).catch(() => undefined);
   }, [google, sampleOn, cal?.weekOf, userId, isDemoUser]);
 
   function toggleSample() {
@@ -296,23 +300,39 @@ export default function App() {
     () => (cal && isDemoUser ? toSegments(events, cal.days) : []),
     [events, cal, isDemoUser],
   );
+  // Semana de descanso: eligió «Esta semana no» y la cita quedó 'skipped' (sin hora, sin bloque en la grilla).
+  const restWeek = useMemo(
+    () => !!cal && appts.some((a) => a.status === 'skipped' && a.weekOf === cal.weekOf),
+    [appts, cal],
+  );
   const fitEntries = useMemo(() => {
     if (!cal || !prefsState) return [];
     const taken: TakenInterval[] = cal.blocks
       .filter((b) => ACTIVE_STATUSES.has(b.status))
       .map((b) => ({ dayIndex: b.dayIndex, startMin: b.startMinutes, endMin: b.startMinutes + b.durationMin }));
+    // Días que una movida dejó libres (el backend mueve la misma cita: el día de origen ya no tiene bloque).
+    const weekDates = new Set(cal.days.map((d) => d.date));
+    const movedFrom: MovedFrom[] = appts.flatMap((a) =>
+      a.moves
+        .map((m) => santiagoParts(new Date(m.from)).date)
+        .filter((date) => weekDates.has(date) && date !== a.local?.date)
+        .map((date) => ({ date, toDayName: a.local?.weekdayName ?? 'otro día' })),
+    );
     const nowParts = now ? santiagoParts(new Date(now)) : null;
     const entries = fitWeek({
       days: cal.days,
       prefs: prefsState.prefs,
-      busy: segments,
+      busy: [...segments, ...(isDemoUser ? allDaySegments(events, cal.days) : [])],
       taken,
+      movedFrom,
       now: nowParts,
       preferredTime: current?.preferredTime,
     });
-    return pickSuggestions(entries, prefsState.prefs.perWeek);
-  }, [cal, prefsState, segments, now, current?.preferredTime]);
-  const suggestions: Suggestion[] = prefsState
+    return pickSuggestions(entries, prefsState.prefs.perWeek, restWeek);
+  }, [cal, prefsState, segments, events, isDemoUser, appts, restWeek, now, current?.preferredTime]);
+  // Sin respuesta a la primera pregunta no se dibujan sugerencias: serían reglas que ella todavía no eligió.
+  const prefsConfigured = !!prefsState && prefsState.source !== 'default';
+  const suggestions: Suggestion[] = prefsConfigured
     ? fitEntries
         .filter((e) => e.suggested && e.slot)
         .map((e) => ({
@@ -320,25 +340,36 @@ export default function App() {
           dayIndex: e.dayIndex,
           startMin: e.slot!.startMin,
           endMin: e.slot!.endMin,
-          label: `Cabe ${prefsState.prefs.sessionMin}'`,
+          label: `Cabe ${prefsState!.prefs.sessionMin}'`,
         }))
     : [];
 
   async function savePrefs(p: SessionPrefs) {
-    if (!userId) return;
+    if (!userId || !current) return;
     try {
       const r = await api.savePrefs(userId, p);
       // El backend devuelve la usuaria con sus reglas: desde ahora es la fuente de verdad.
       setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
-      savePrefsLocal(userId, p);
+      savePrefsLocal(r.user, p);
       setPrefsNote(null);
       bump();
     } catch (e) {
-      const stored = savePrefsLocal(userId, p);
+      const stored = savePrefsLocal(current, p);
       if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setPrefsNote(LOCAL_PREFS_NOTE);
       else setPrefsNote(stored ? 'No pudimos guardarlas en La Cita; quedaron en este navegador.' : 'No pudimos guardar tus reglas.');
     }
     setPrefsVersion((v) => v + 1);
+  }
+
+  /** Lo que «Preparar a Camila» borra del lado de la web: chat, semana elegida y las reglas guardadas acá. */
+  function afterReset() {
+    resetChat();
+    setWeekOf(null);
+    if (demoUserId) clearPrefsLocal(demoUserId);
+    setPrefsNote(null);
+    setPrefsVersion((v) => v + 1);
+    setSetupEpoch((n) => n + 1);
+    bump();
   }
 
   async function prepareCamila() {
@@ -346,9 +377,7 @@ export default function App() {
     setPreparing(true);
     try {
       await api.reset();
-      resetChat();
-      setWeekOf(null);
-      bump();
+      afterReset();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'No se pudo preparar a Camila.');
     } finally {
@@ -402,7 +431,7 @@ export default function App() {
 
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
   const offline = apiDown || isOffline(chatErrorStatus);
-  const notPrepared = !offline && chatErrorStatus === 404;
+  const notPrepared = !offline && chatErrorStatus === 404 && isDemoUser;
   const isCurrentWeek = weekOf === null || weekOf === summary?.nextAppointment?.weekOf;
   const weekTitle = !cal ? '' : isCurrentWeek ? 'esta semana' : `semana del ${Number(cal.weekOf.slice(8))}`;
   const shownNote = prefsNote ?? (prefsState?.source === 'local' ? LOCAL_PREFS_NOTE : null);
@@ -475,10 +504,13 @@ export default function App() {
           {view === 'camila' && <NextUp summary={summary} appts={appts} now={now} synthetic={!!current?.synthetic} />}
           {view === 'camila' && prefsState && cal && (
             <SessionSetup
-              key={userId ?? 'none'}
+              key={`${userId ?? 'none'}-${setupEpoch}`}
               prefs={prefsState.prefs}
               source={prefsState.source}
               entries={fitEntries}
+              restWeek={restWeek}
+              today={now ? santiagoParts(new Date(now)).date : null}
+              onNextWeek={() => cal && setWeekOf(addDaysISO(cal.weekOf, 7))}
               weekTitle={weekTitle}
               calendarPhrase={
                 isDemoUser && gState === 'on'
@@ -501,7 +533,7 @@ export default function App() {
               googleConnected={!!google}
               onToggleSample={toggleSample}
               onDone={(opts) => {
-                if (opts?.resetChat) resetChat();
+                if (opts?.resetChat) afterReset();
                 if (opts?.followClock) setWeekOf(null);
                 bump();
               }}
@@ -514,7 +546,7 @@ export default function App() {
             segments={isDemoUser ? segments : []}
             now={now}
             window={view === 'camila' && prefsState ? prefsState.prefs.window : current?.window ?? null}
-            gymHours={view === 'camila' && prefsState ? prefsState.prefs.gymHours : null}
+            gymHours={view === 'camila' && prefsConfigured ? prefsState!.prefs.gymHours : null}
             suggestions={view === 'camila' ? suggestions : []}
             busyLabel={busyLabel}
             google={isDemoUser ? gState : 'off'}
@@ -542,6 +574,7 @@ export default function App() {
               merge={merge}
               loaded={chatLoaded}
               error={chatError}
+              errorStatus={chatErrorStatus}
               onActivity={bump}
               onError={showToast}
               telegramBot={TELEGRAM_BOT}

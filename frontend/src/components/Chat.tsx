@@ -11,6 +11,7 @@ interface Props {
   merge: (m: Message[]) => void;
   loaded: boolean;
   error: string | null;
+  errorStatus: number | null;
   onActivity: () => void;
   onError: (msg: string) => void;
   telegramBot?: string;
@@ -32,6 +33,7 @@ export default function Chat({
   merge,
   loaded,
   error,
+  errorStatus,
   onActivity,
   onError,
   telegramBot,
@@ -63,15 +65,17 @@ export default function Chat({
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
-  async function send(body: { text?: string; action?: string; label?: string }, onFail?: () => void) {
+  async function send(body: { text?: string; action?: string; label?: string }, onFail?: () => void): Promise<boolean> {
     setBusy(true);
     try {
       const r = await api.send(userId, body);
       merge(r.replies);
       onActivity();
+      return true;
     } catch (e) {
       onFail?.();
       onError(e instanceof Error ? e.message : 'No se pudo enviar.');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -85,13 +89,14 @@ export default function Chat({
     send({ text: t }, () => setText(t));
   }
 
-  function tap(e: MouseEvent, m: Message, b: Button) {
+  async function tap(e: MouseEvent, m: Message, b: Button) {
     if (e.detail > 1 || keyboardLocked || m !== lastWithButtons) return;
     const key = msgKey(m);
     setAnsweredKey(key);
-    // Tope duro: si un reset externo trae una captura con la misma clave, el bloqueo no puede quedar pegado.
-    window.setTimeout(() => setAnsweredKey((k) => (k === key ? null : k)), LOCK_MAX_MS);
-    send({ action: b.action, label: b.label }, () => setAnsweredKey((k) => (k === key ? null : k)));
+    const ok = await send({ action: b.action, label: b.label }, () => setAnsweredKey((k) => (k === key ? null : k)));
+    // Tope duro desde que el servidor confirmó (no desde el toque: con red lenta liberaría un teclado ya respondido).
+    // Si un reset externo trae una captura con la misma clave, el bloqueo no queda pegado.
+    if (ok) window.setTimeout(() => setAnsweredKey((k) => (k === key ? null : k)), LOCK_MAX_MS);
   }
 
   const current = users.find((u) => u.id === userId);
@@ -125,9 +130,11 @@ export default function Chat({
       <div className="chat-log" ref={logRef} role="log" aria-live={loaded ? 'polite' : 'off'}>
         {messages.length === 0 && (
           <p className="chat-empty">
-            {error
-              ? 'No hay conexión con La Cita. Revisa que la API esté arriba.'
-              : 'Todavía no hay mensajes. El domingo a las 20:00 llega la primera pregunta: usa el panel de demo para adelantar el reloj.'}
+            {error && errorStatus === 404
+              ? 'Esta conversación todavía no existe en la API.'
+              : error
+                ? 'No hay conexión con La Cita. Revisa que la API esté arriba.'
+                : 'Todavía no hay mensajes. El domingo a las 20:00 llega la primera pregunta: usa el panel de demo para adelantar el reloj.'}
           </p>
         )}
         {messages.map((m) => (

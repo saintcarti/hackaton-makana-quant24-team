@@ -13,6 +13,11 @@ interface Props {
   prefs: SessionPrefs;
   source: PrefsSource;
   entries: FitEntry[];
+  /** Eligió «Esta semana no»: no se sugiere nada. */
+  restWeek: boolean;
+  /** Fecha de hoy en Santiago (reloj del backend), para saber si a la semana visible le queda algo. */
+  today: string | null;
+  onNextWeek: () => void;
   weekTitle: string;
   /** Fuente de las horas ocupadas, como frase («tu calendario de Google»); null si no hay ninguna. */
   calendarPhrase: string | null;
@@ -36,7 +41,18 @@ const DAY_FULL: Record<number, string> = {
   0: 'domingo',
 };
 
-export default function SessionSetup({ prefs, source, entries, weekTitle, calendarPhrase, saveNote, onSave }: Props) {
+export default function SessionSetup({
+  prefs,
+  source,
+  entries,
+  restWeek,
+  today,
+  onNextWeek,
+  weekTitle,
+  calendarPhrase,
+  saveNote,
+  onSave,
+}: Props) {
   const [mode, setMode] = useState<Mode>(source === 'default' ? 'ask-gym' : 'summary');
   const [draft, setDraft] = useState<SessionPrefs>(prefs);
   const [saving, setSaving] = useState(false);
@@ -227,8 +243,11 @@ export default function SessionSetup({ prefs, source, entries, weekTitle, calend
     );
   }
 
-  const suggestedCount = entries.filter((e) => e.suggested).length;
-  const bookedCount = entries.filter((e) => e.status === 'booked').length;
+  // A la semana visible no le queda nada útil por delante (p. ej. domingo 20:00): se ofrece mirar la siguiente.
+  const weekOver =
+    !restWeek &&
+    today !== null &&
+    !entries.some((e) => e.date >= today && e.status !== 'past' && e.status !== 'not-a-day');
 
   return (
     <section className="panel setup" aria-label="Dónde cabe tu sesión">
@@ -244,36 +263,48 @@ export default function SessionSetup({ prefs, source, entries, weekTitle, calend
       {saveNote && <p className="notice small" style={{ margin: 0 }}>{saveNote}</p>}
 
       <div>
-        <h3 className="setup-h3">
-          Dónde cabe · {weekTitle}
-          <span className="muted small">
-            {' '}
-            · {bookedCount + suggestedCount} de {prefs.perWeek} {prefs.perWeek === 1 ? 'sesión' : 'sesiones'}
-          </span>
-        </h3>
-        <ul className="fit-list">
-          {entries.map((e) => (
-            <li key={e.date} className={`fit-${e.status}${e.suggested ? ' fit-suggested' : ''}`}>
-              <span className="fit-day">
-                {DAY_SHORT[e.dayIndex]} {Number(e.date.slice(8))}
-              </span>
-              {e.status === 'fits' && e.slot ? (
-                <span>
-                  <b>
-                    {fmtMin(e.slot.startMin)}–{fmtMin(e.slot.endMin)}
-                  </b>{' '}
-                  {e.suggested ? <span className="chip chip-accent">Te la proponemos</span> : <span className="muted">· también libre</span>}
+        <h3 className="setup-h3">Dónde cabe · {weekTitle}</h3>
+        {restWeek ? (
+          <div className="fit-empty">
+            <p style={{ margin: 0 }}>
+              <b>Semana de descanso.</b> Esta semana no buscamos horarios; el domingo a las 20:00 vuelve la pregunta.
+            </p>
+            <button className="btn btn-sm" onClick={onNextWeek}>
+              Ver la semana que viene →
+            </button>
+          </div>
+        ) : weekOver ? (
+          <div className="fit-empty">
+            <p style={{ margin: 0 }}>A esta semana ya no le quedan días para tu sesión.</p>
+            <button className="btn btn-sm" onClick={onNextWeek}>
+              Ver la semana que viene →
+            </button>
+          </div>
+        ) : (
+          <ul className="fit-list">
+            {entries.map((e) => (
+              <li key={e.date} className={`fit-${e.status}${e.suggested ? ' fit-suggested' : ''}`}>
+                <span className="fit-day">
+                  {DAY_SHORT[e.dayIndex]} {Number(e.date.slice(8))}
                 </span>
-              ) : e.status === 'booked' ? (
-                <span>
-                  <b>{e.reason}</b>
-                </span>
-              ) : (
-                <span className="muted">{e.reason}</span>
-              )}
-            </li>
-          ))}
-        </ul>
+                {e.status === 'fits' && e.slot ? (
+                  <span className="fit-value">
+                    <b>
+                      {fmtMin(e.slot.startMin)}–{fmtMin(e.slot.endMin)}
+                    </b>
+                    {e.suggested ? <span className="chip chip-accent">Cabe aquí</span> : <span className="muted">también libre</span>}
+                  </span>
+                ) : e.status === 'booked' ? (
+                  <span className="fit-value">
+                    <b>{e.reason}</b>
+                  </span>
+                ) : (
+                  <span className="fit-value muted">{e.reason}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="fineprint" style={{ margin: '0.5rem 0 0' }}>
           {calendarPhrase
             ? `Mira el horario del gym, tu ventana, tus citas de La Cita y ${calendarPhrase}.`

@@ -58,7 +58,11 @@ function sanitize(raw: unknown, base: SessionPrefs): SessionPrefs {
   };
 }
 
-/** Fuente de verdad: lo que devuelve el backend > lo guardado en este navegador > valores por defecto. */
+/**
+ * Fuente de verdad: lo que devuelve el backend > lo guardado en este navegador > valores por defecto.
+ * Lo local queda atado a la usuaria que lo creó (`createdAt`): un reset del demo la recrea y las reglas viejas
+ * no deben sobrevivir, para que la primera pregunta vuelva a salir en cada ensayo.
+ */
 export function loadPrefs(user: User | null): { prefs: SessionPrefs; source: PrefsSource } {
   const base = defaults(user);
   const fromBackend = user as (User & BackendFields) | null;
@@ -68,7 +72,12 @@ export function loadPrefs(user: User | null): { prefs: SessionPrefs; source: Pre
   if (user) {
     try {
       const raw = localStorage.getItem(localKey(user.id));
-      if (raw) return { prefs: sanitize(JSON.parse(raw), base), source: 'local' };
+      if (raw) {
+        const stored = JSON.parse(raw) as { createdAt?: string; prefs?: unknown };
+        if (stored.createdAt === user.createdAt && stored.prefs) {
+          return { prefs: sanitize(stored.prefs, base), source: 'local' };
+        }
+      }
     } catch {
       /* almacenamiento bloqueado o JSON roto: valores por defecto */
     }
@@ -76,25 +85,51 @@ export function loadPrefs(user: User | null): { prefs: SessionPrefs; source: Pre
   return { prefs: base, source: 'default' };
 }
 
-export function savePrefsLocal(userId: string, prefs: SessionPrefs): boolean {
+export function savePrefsLocal(user: Pick<User, 'id' | 'createdAt'>, prefs: SessionPrefs): boolean {
   try {
-    localStorage.setItem(localKey(userId), JSON.stringify(prefs));
+    localStorage.setItem(localKey(user.id), JSON.stringify({ createdAt: user.createdAt, prefs }));
     return true;
   } catch {
     return false;
   }
 }
 
+export function clearPrefsLocal(userId: string) {
+  try {
+    localStorage.removeItem(localKey(userId));
+  } catch {
+    /* nada que limpiar */
+  }
+}
+
+/** Minutos de una hora de cierre o fin de ventana: '00:00' como cierre significa medianoche (24:00). */
+export function endToMinutes(hhmm: string) {
+  const m = hhmmToMinutes(hhmm);
+  return m === 0 ? 24 * 60 : m;
+}
+
+const ceil15 = (m: number) => Math.ceil(m / 15) * 15;
+
 /** Problema que impide calzar cualquier sesión, en lenguaje llano; null si las reglas tienen sentido. */
 export function prefsProblem(p: SessionPrefs): string | null {
+  const fields: Array<[string, string]> = [
+    [p.gymHours.open, 'la hora de apertura del gym'],
+    [p.gymHours.close, 'la hora de cierre del gym'],
+    [p.window.start, 'el inicio de tu ventana'],
+    [p.window.end, 'el fin de tu ventana'],
+  ];
+  for (const [value, name] of fields) {
+    if (!HHMM.test(value)) return `Completa ${name}.`;
+    if (hhmmToMinutes(value) % 15 !== 0) return `Usa múltiplos de 15 minutos en ${name}.`;
+  }
   const open = hhmmToMinutes(p.gymHours.open);
-  const close = hhmmToMinutes(p.gymHours.close);
+  const close = endToMinutes(p.gymHours.close);
   const start = hhmmToMinutes(p.window.start);
-  const end = hhmmToMinutes(p.window.end);
+  const end = endToMinutes(p.window.end);
   if (close <= open) return 'El cierre del gym tiene que ser después de la apertura.';
   if (end <= start) return 'Tu ventana tiene que terminar después de empezar.';
   if (!p.days.length) return 'Elige al menos un día.';
-  const usable = Math.min(end, close) - Math.max(start, open);
+  const usable = Math.min(end, close) - ceil15(Math.max(start, open));
   if (usable < p.sessionMin) {
     return `Entre tu ventana y el horario del gym quedan ${Math.max(0, usable)} min: no alcanza para una sesión de ${p.sessionMin}.`;
   }
@@ -108,5 +143,6 @@ export function dayNames(days: number[]) {
 
 export function prefsSummary(p: SessionPrefs) {
   const veces = p.perWeek === 1 ? '1 vez' : `${p.perWeek} veces`;
-  return `Gym ${p.gymHours.open}–${p.gymHours.close} · sesión de ${p.sessionMin} min · ${veces} por semana · ${dayNames(p.days).join(', ')}`;
+  const close = p.gymHours.close === '00:00' ? '24:00' : p.gymHours.close;
+  return `Gym ${p.gymHours.open}–${close} · sesión de ${p.sessionMin} min · ${veces} por semana · ${dayNames(p.days).join(', ')}`;
 }
