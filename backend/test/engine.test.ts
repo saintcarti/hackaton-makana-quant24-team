@@ -196,12 +196,24 @@ describe('Cloudflare Workers AI', () => {
     spy.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { response: ' Move.\n' } })));
     const p = new CloudflareAiParser('acc', 'tok');
     expect(await p.classify('no llego, junta eterna')).toBe('move');
-    expect(String(spy.mock.calls[0]![0])).toContain('/accounts/acc/ai/run/@cf/meta/llama-3.1-8b-instruct');
+    expect(String(spy.mock.calls[0]![0])).toContain('/accounts/acc/ai/run/@cf/zai-org/glm-5.3-flash');
 
     spy.mockResolvedValueOnce(new Response('{}', { status: 500 }));
     expect(await p.classify('x')).toBeNull();
     spy.mockRejectedValueOnce(new Error('red'));
     expect(await p.classify('x')).toBeNull();
     spy.mockRestore();
+  });
+});
+
+import { toIntent } from '../src/intent.js';
+
+describe('toIntent con modelos que razonan en voz alta', () => {
+  it('ignora <think> y toma la conclusión', () => {
+    expect(toIntent('<think>puede ser done o move... el usuario dice que no puede</think>move')).toBe('move');
+    expect(toIntent('Razonamiento: menciona dolor, no es move. Respuesta: pain')).toBe('pain');
+    expect(toIntent('<think>sin cerrar, quizás done')).toBeNull();
+    expect(toIntent('skip_week')).toBe('skip_week');
+    expect(toIntent('')).toBeNull();
   });
 });

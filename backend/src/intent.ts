@@ -34,9 +34,21 @@ const CLASSIFY_PROMPT =
 
 const VALID_INTENTS: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose', 'unknown'];
 
-function toIntent(raw: string | undefined): Intent | null {
-  const word = raw?.trim().toLowerCase().replace(/[^a-z_]/g, '');
-  return VALID_INTENTS.includes(word as Intent) ? (word as Intent) : null;
+/**
+ * Extrae la intención aunque el modelo "piense en voz alta": descarta bloques <think>,
+ * y toma la ÚLTIMA palabra válida del texto (la conclusión, no el razonamiento).
+ */
+export function toIntent(raw: string | undefined | null): Intent | null {
+  if (!raw) return null;
+  const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, ' ').replace(/<think>[\s\S]*$/i, ' ').toLowerCase();
+  const found = clean.match(/\b(?:skip_week|move|done|pain|propose|unknown)\b/g);
+  return found ? (found[found.length - 1] as Intent) : null;
+}
+
+/** Soporta ambas formas de respuesta de Workers AI: `result.response` y estilo OpenAI `result.choices`. */
+function extractText(json: any): string | undefined {
+  const r = json?.result;
+  return r?.response ?? r?.choices?.[0]?.message?.content ?? undefined;
 }
 
 /**
@@ -48,8 +60,9 @@ export class CloudflareAiParser implements LlmParser {
   constructor(
     private accountId: string,
     private apiToken: string,
-    private model = '@cf/meta/llama-3.1-8b-instruct',
+    private model = '@cf/zai-org/glm-5.3-flash',
     private timeoutMs = 4000,
+    private maxTokens = 48,
   ) {}
 
   async classify(text: string): Promise<Intent | null> {
@@ -63,7 +76,7 @@ export class CloudflareAiParser implements LlmParser {
           signal: ctrl.signal,
           headers: { Authorization: `Bearer ${this.apiToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            max_tokens: 8,
+            max_tokens: this.maxTokens,
             temperature: 0,
             messages: [
               { role: 'system', content: CLASSIFY_PROMPT },
@@ -73,8 +86,8 @@ export class CloudflareAiParser implements LlmParser {
         },
       );
       if (!res.ok) return null;
-      const json = (await res.json()) as { success?: boolean; result?: { response?: string } };
-      return json.success === false ? null : toIntent(json.result?.response);
+      const json = (await res.json()) as { success?: boolean };
+      return json.success === false ? null : toIntent(extractText(json));
     } catch {
       return null;
     } finally {
@@ -85,5 +98,11 @@ export class CloudflareAiParser implements LlmParser {
 
 export function parserFromEnv(env: NodeJS.ProcessEnv = process.env): LlmParser | null {
   if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) return null;
-  return new CloudflareAiParser(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_API_TOKEN, env.CF_AI_MODEL || undefined);
+  return new CloudflareAiParser(
+    env.CLOUDFLARE_ACCOUNT_ID,
+    env.CLOUDFLARE_API_TOKEN,
+    env.CF_AI_MODEL || undefined,
+    undefined,
+    env.CF_AI_MAX_TOKENS ? Number(env.CF_AI_MAX_TOKENS) : undefined,
+  );
 }
