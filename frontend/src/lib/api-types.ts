@@ -1,0 +1,141 @@
+/**
+ * Tipos del contrato HTTP de La Cita. Copia este archivo al frontend (p. ej. frontend/src/lib/api-types.ts).
+ * Fuente de verdad: backend/src/types.ts y backend/src/views.ts. Si cambian, se actualiza este archivo.
+ */
+
+export type ApptStatus = 'proposed' | 'confirmed' | 'reminded' | 'done' | 'lapsed' | 'skipped';
+
+export interface Button {
+  label: string;
+  /** Devuélvelo tal cual en POST /api/users/:id/messages { action, label }. */
+  action: string;
+}
+
+export interface Attachment {
+  kind: 'ics';
+  apptId: string;
+  filename: string;
+  /** Ruta relativa a la base de la API, p. ej. "/api/appointments/a_1234/ics". */
+  url: string;
+}
+
+export interface Message {
+  /** Número incremental global: úsalo en ?after= para hacer polling. */
+  n: number;
+  id: string;
+  userId: string;
+  dir: 'in' | 'out';
+  at: string;
+  text: string;
+  buttons?: Button[];
+  attachment?: Attachment;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  gym: string;
+  monthlyFee: number;
+  plannedVisitsPerMonth: number;
+  window: { start: string; end: string };
+  preferredTime: string;
+  channel: { type: 'sim' | 'telegram'; chatId?: number };
+  synthetic: boolean;
+  consecutiveMoves: number;
+  pending: { kind: 'capture' | 'other_hour' | 'renegotiate'; apptId: string; sentAt?: string } | null;
+  createdAt: string;
+}
+
+export interface Move {
+  from: string;
+  to: string;
+  at: string;
+}
+
+export interface Appointment {
+  id: string;
+  userId: string;
+  startsAt: string | null;
+  durationMin: number;
+  venue: string;
+  content: string;
+  status: ApptStatus;
+  source: 'user' | 'default' | 'move' | 'seed';
+  options: string[];
+  moves: Move[];
+  weekOf: string;
+  createdAt: string;
+  doneAt?: string;
+}
+
+/** Cita tal como la devuelve la API (con campos de presentación ya resueltos). */
+export interface AppointmentView extends Appointment {
+  local: { date: string; weekday: number; weekdayName: string; time: string } | null;
+  /** Texto neutro listo para mostrar. 'lapsed' nunca se muestra como falta: usa este label. */
+  label: 'Realizada' | 'Pasó' | 'Semana de descanso' | 'Por elegir' | 'Recordada' | 'Movida' | 'Agendada';
+  wasMoved: boolean;
+}
+
+export interface ApiError {
+  error: { code: string; message: string };
+}
+
+// ── Respuestas ───────────────────────────────────────────────────────────────
+
+export interface MessagesPost {
+  replies: Message[];
+  user: User;
+  now: string;
+}
+
+export interface ActionResponse {
+  appointment: AppointmentView | null;
+  replies: Message[];
+  now: string;
+}
+
+export interface CalendarWeek {
+  weekOf: string;
+  days: Array<{ date: string; weekday: number; weekdayName: string }>;
+  hourRange: { from: string; to: string };
+  blocks: Array<{
+    id: string;
+    /** 0 = lunes … 6 = domingo */
+    dayIndex: number;
+    date: string;
+    startMinutes: number;
+    durationMin: number;
+    time: string;
+    status: ApptStatus;
+    label: string;
+    wasMoved: boolean;
+  }>;
+}
+
+export interface Summary {
+  userId: string;
+  visitsLast6Weeks: number;
+  visitsTotal: number;
+  movesLast6Weeks: number;
+  movesTotal: number;
+  brokenChains: number;
+  consecutiveMoves: number;
+  recoveredCLP: number;
+  recoveredPerVisitCLP: number;
+  monthlyFee: number;
+  nextAppointment: AppointmentView | null;
+  /** 7 buckets: 6 semanas completas previas + la semana en curso. */
+  weeklyVisits: Array<{ weekOf: string; visits: number }>;
+}
+
+export interface Meta {
+  timezone: string;
+  demoUserId: string;
+  now: string;
+  clockSimulated: boolean;
+  channels: string[];
+  telegramEnabled: boolean;
+  users: number;
+}
+
+export type ClockPreset = 'sunday-20' | 'sunday-2330' | 'monday-1830' | 'monday-2000';
