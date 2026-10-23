@@ -187,22 +187,35 @@ describe('Camila sintética', () => {
   });
 });
 
-import { CloudflareAiParser } from '../src/intent.js';
+import { DEFAULT_AI_MODEL, WorkersAiParser, bindingRunner, restRunner } from '../src/intent.js';
 import { vi } from 'vitest';
 
 describe('Cloudflare Workers AI', () => {
-  it('clasifica vía REST y tolera fallas', async () => {
+  it('REST: clasifica, no usa reasoning_content y tolera fallas', async () => {
     const spy = vi.spyOn(globalThis, 'fetch');
-    spy.mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: { response: ' Move.\n' } })));
-    const p = new CloudflareAiParser('acc', 'tok');
+    const ok = (message: object) =>
+      new Response(JSON.stringify({ success: true, result: { choices: [{ message }] } }));
+    spy.mockResolvedValueOnce(ok({ content: ' Move.', reasoning_content: 'quizás done' }));
+    const p = new WorkersAiParser(restRunner('acc', 'tok'));
     expect(await p.classify('no llego, junta eterna')).toBe('move');
-    expect(String(spy.mock.calls[0]![0])).toContain('/accounts/acc/ai/run/@cf/zai-org/glm-5.3-flash');
+    expect(String(spy.mock.calls[0]![0])).toContain(`/accounts/acc/ai/run/${DEFAULT_AI_MODEL}`);
+    expect(JSON.parse(String((spy.mock.calls[0]![1] as RequestInit).body)).chat_template_kwargs).toEqual({ thinking: false });
 
+    // content vacío (el modelo se quedó pensando): null, nunca se usa el razonamiento
+    spy.mockResolvedValueOnce(ok({ content: '', reasoning_content: 'la respuesta es done' }));
+    expect(await p.classify('x')).toBeNull();
     spy.mockResolvedValueOnce(new Response('{}', { status: 500 }));
     expect(await p.classify('x')).toBeNull();
     spy.mockRejectedValueOnce(new Error('red'));
     expect(await p.classify('x')).toBeNull();
     spy.mockRestore();
+  });
+
+  it('binding: usa env.AI.run', async () => {
+    const run = vi.fn().mockResolvedValue({ response: 'pain' });
+    const p = new WorkersAiParser(bindingRunner({ run }), '@cf/test/model');
+    expect(await p.classify('me duele')).toBe('pain');
+    expect(run).toHaveBeenCalledWith('@cf/test/model', expect.objectContaining({ temperature: 0 }));
   });
 });
 

@@ -49,7 +49,7 @@ export class UpstashStore implements Store {
   }
 }
 
-export function storeFromEnv(env: NodeJS.ProcessEnv = process.env): Store {
+export function storeFromEnv(env: Record<string, string | undefined> = process.env): Store {
   if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
     return new UpstashStore(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN);
   }

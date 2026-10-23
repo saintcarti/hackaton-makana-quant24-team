@@ -48,7 +48,7 @@ Alineados con `build-plan-2dias.md` de la fase de investigación.
 | Hora | Backend | Frontend |
 |---|---|---|
 | Vie 12:00 | API en marcha con el reloj simulable y Camila sintética; Telegram con `setWebhook` | Chat conectado a `POST /messages` con botones funcionando |
-| Vie 18:00 | MUEVE y `.ics` verificados de punta a punta, deploy en Vercel | Vista admin leyendo `/summary` y `/appointments` |
+| Vie 18:00 | MUEVE y `.ics` verificados de punta a punta, deploy en Cloudflare Workers | Vista admin leyendo `/summary` y `/appointments` |
 | Vie 21:00 | Ensayo #1 | Ensayo #1 |
 | Sáb 10:30 | Plan B sin red listo | Plan B sin red listo (obligatorio, regla R6) |
 | Sáb 13:30 | **Corte**: se congela todo | **Corte**: se congela todo |

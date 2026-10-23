@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { buildIcs } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { nextSlots, parseWhen, renegotiationSlots } from './slots.js';
@@ -45,7 +44,7 @@ export class DomainError extends Error {
   }
 }
 
-const shortId = (prefix: string) => `${prefix}_${randomUUID().slice(0, 8)}`;
+const shortId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
 export interface Ctx {
   db: DB;

@@ -45,64 +45,102 @@ export function toIntent(raw: string | undefined | null): Intent | null {
   return found ? (found[found.length - 1] as Intent) : null;
 }
 
-/** Soporta ambas formas de respuesta de Workers AI: `result.response` y estilo OpenAI `result.choices`. */
-function extractText(json: any): string | undefined {
-  const r = json?.result;
-  return r?.response ?? r?.choices?.[0]?.message?.content ?? undefined;
+/** Soporta ambas formas de respuesta de Workers AI: `response` y estilo OpenAI `choices`. Nunca usa `reasoning_content`. */
+function extractText(result: any): string | undefined {
+  return result?.response ?? result?.choices?.[0]?.message?.content ?? undefined;
+}
+
+/** Ejecuta un modelo de Workers AI y devuelve el `result` ya desenvuelto. */
+export type AiRunner = (model: string, body: Record<string, unknown>) => Promise<unknown>;
+
+/** Runner REST: sirve en local/Node con account id + API token (permiso Workers AI). */
+export function restRunner(accountId: string, apiToken: string, timeoutMs = 4000): AiRunner {
+  return async (model, body) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`Workers AI ${res.status}`);
+      const json = (await res.json()) as { success?: boolean; result?: unknown };
+      if (json.success === false) throw new Error('Workers AI success=false');
+      return json.result;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+/** Runner por binding (dentro de un Worker): `env.AI.run(model, body)`, sin tokens ni red extra. */
+export function bindingRunner(ai: { run(model: string, body: any): Promise<unknown> }): AiRunner {
+  return (model, body) => ai.run(model, body);
+}
+
+export const DEFAULT_AI_MODEL = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
+/** Modelos con razonamiento: sin esto gastan los tokens pensando y `content` llega vacío. */
+export const NO_THINKING = { chat_template_kwargs: { thinking: false } };
+
+export interface WorkersAiOptions {
+  maxTokens?: number;
+  extraBody?: Record<string, unknown>;
 }
 
 /**
- * Cloudflare Workers AI (REST) solo para CLASIFICAR lenguaje natural cuando las reglas
- * no entienden. Nunca redacta mensajes: el tono lo garantizan las plantillas.
- * Funciona desde cualquier host (Vercel, local) con account id + API token con permiso Workers AI.
+ * Workers AI solo para CLASIFICAR lenguaje natural cuando las reglas no entienden.
+ * Nunca redacta mensajes: el tono lo garantizan las plantillas. Si falla, devuelve null
+ * y el motor sigue con las reglas locales.
  */
-export class CloudflareAiParser implements LlmParser {
+export class WorkersAiParser implements LlmParser {
   constructor(
-    private accountId: string,
-    private apiToken: string,
-    private model = '@cf/zai-org/glm-5.3-flash',
-    private timeoutMs = 4000,
-    private maxTokens = 48,
+    private run: AiRunner,
+    private model = DEFAULT_AI_MODEL,
+    private opts: WorkersAiOptions = {},
   ) {}
 
   async classify(text: string): Promise<Intent | null> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
     try {
-      const res = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/ai/run/${this.model}`,
-        {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: { Authorization: `Bearer ${this.apiToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            max_tokens: this.maxTokens,
-            temperature: 0,
-            messages: [
-              { role: 'system', content: CLASSIFY_PROMPT },
-              { role: 'user', content: text.slice(0, 300) },
-            ],
-          }),
-        },
-      );
-      if (!res.ok) return null;
-      const json = (await res.json()) as { success?: boolean };
-      return json.success === false ? null : toIntent(extractText(json));
-    } catch {
+      const result = await this.run(this.model, {
+        max_tokens: this.opts.maxTokens ?? 16,
+        temperature: 0,
+        ...(this.opts.extraBody ?? NO_THINKING),
+        messages: [
+          { role: 'system', content: CLASSIFY_PROMPT },
+          { role: 'user', content: text.slice(0, 300) },
+        ],
+      });
+      const intent = toIntent(extractText(result));
+      if (!intent) console.warn(JSON.stringify({ evt: 'ai_unusable', model: this.model }));
+      return intent;
+    } catch (err) {
+      console.warn(JSON.stringify({ evt: 'ai_error', model: this.model, message: (err as Error).message }));
       return null;
-    } finally {
-      clearTimeout(timer);
     }
   }
 }
 
-export function parserFromEnv(env: NodeJS.ProcessEnv = process.env): LlmParser | null {
+/** Opciones desde el entorno: CF_AI_MODEL, CF_AI_MAX_TOKENS, CF_AI_EXTRA_JSON (JSON; "{}" para no enviar nada extra). */
+export function aiOptionsFromEnv(env: Record<string, string | undefined>) {
+  let extraBody: Record<string, unknown> | undefined;
+  if (env.CF_AI_EXTRA_JSON) {
+    try {
+      extraBody = JSON.parse(env.CF_AI_EXTRA_JSON);
+    } catch {
+      extraBody = undefined;
+    }
+  }
+  return {
+    model: env.CF_AI_MODEL || DEFAULT_AI_MODEL,
+    opts: { maxTokens: env.CF_AI_MAX_TOKENS ? Number(env.CF_AI_MAX_TOKENS) : undefined, extraBody } as WorkersAiOptions,
+  };
+}
+
+/** Node/local: usa REST con token. En Workers se usa `bindingRunner` (ver worker.ts). */
+export function parserFromEnv(env: Record<string, string | undefined> = process.env): LlmParser | null {
   if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) return null;
-  return new CloudflareAiParser(
-    env.CLOUDFLARE_ACCOUNT_ID,
-    env.CLOUDFLARE_API_TOKEN,
-    env.CF_AI_MODEL || undefined,
-    undefined,
-    env.CF_AI_MAX_TOKENS ? Number(env.CF_AI_MAX_TOKENS) : undefined,
-  );
+  const { model, opts } = aiOptionsFromEnv(env);
+  return new WorkersAiParser(restRunner(env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_API_TOKEN), model, opts);
 }

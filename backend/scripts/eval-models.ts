@@ -5,13 +5,14 @@
  * Requiere CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_API_TOKEN en backend/.env.
  * Mide: aciertos, latencia (media y p95), y cuántas veces el modelo "razonó en voz alta" en la salida.
  */
-import { CloudflareAiParser, Intent } from '../src/intent.js';
+import { Intent, NO_THINKING, WorkersAiParser, restRunner } from '../src/intent.js';
 
 const MODELS = [
-  '@cf/zai-org/glm-5.3-flash',
-  '@cf/deepseek-ai/deepseek-v4.1-flash-1017m',
-  '@cf/zai-org/glm-5.3',
+  '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  '@cf/deepseek-ai/deepseek-v4-flash-0731',
   '@cf/deepseek-ai/deepseek-v4-pro-0813',
+  '@cf/zai-org/glm-5.3-flash',
+  '@cf/zai-org/glm-4.7-flash',
 ];
 
 // Mensajes que las reglas locales NO entienden (por eso llegarían al modelo).
@@ -39,10 +40,12 @@ if (!acc || !tok) {
 }
 
 const models = process.argv.slice(2).length ? process.argv.slice(2) : MODELS;
-const maxTokens = Number(process.env.CF_AI_MAX_TOKENS ?? 48);
+const maxTokens = Number(process.env.CF_AI_MAX_TOKENS ?? 16);
+// DeepSeek acepta apagar el razonamiento; GLM lo ignora (se prueba sin extras).
+const extraFor = (model: string) => (model.includes('deepseek') ? NO_THINKING : {});
 
 for (const model of models) {
-  const parser = new CloudflareAiParser(acc, tok, model, 15000, maxTokens);
+  const parser = new WorkersAiParser(restRunner(acc, tok, 15000), model, { maxTokens, extraBody: extraFor(model) });
   let ok = 0;
   let nulls = 0;
   const times: number[] = [];

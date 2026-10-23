@@ -83,7 +83,7 @@ setInterval(async () => {
 }, 1500);
 ```
 
-No hay WebSocket ni SSE: en Vercel serverless no son confiables. El polling alcanza para el demo.
+No hay WebSocket ni SSE: en Workers/serverless no son una buena base. El polling alcanza para el demo.
 
 Cuidado con duplicados: lo que devuelve `POST /messages` (`replies`) también aparecerá en el siguiente polling. Deduplica por `n` (o `id`).
 
@@ -116,7 +116,7 @@ await post('/api/demo/clock', { preset: 'monday-1830' });
 await post(`/api/users/${id}/reminder`, {});     // botón de demo: dispara el recordatorio a mano
 ```
 
-Hazlo con un botón visible en el panel de demo. No finjas automatización: el plan gratuito de Vercel no garantiza la hora exacta. En producción lo hace `/api/jobs/tick`.
+Hazlo con un botón visible en el panel de demo. No finjas automatización: en producción el recordatorio lo dispara un cron de Cloudflare cada 5 minutos (`/api/jobs/tick`), pero ese cron se pausa mientras el reloj de demo está simulado, así que en el demo se dispara a mano.
 
 **Momento 3 · «Hoy no puedo» y luego «listo».**
 
@@ -203,10 +203,12 @@ El backend lo maneja entero. El frontend no necesita nada, salvo mostrar un enla
 
 ## 8. Desplegar y apuntar el front a producción
 
-1. El backend se despliega en Vercel desde la carpeta `backend/` (entrada `api/index.ts`; reescritura de rutas en `vercel.json`).
-2. Variables de entorno de producción: ver `backend/.env.example`. Sin Upstash el estado se pierde entre invocaciones serverless; para el demo usa Upstash o corre el backend en una máquina local con `pnpm start`.
-3. En el front cambia `*_API_URL` a la URL desplegada y pide el `ADMIN_TOKEN` si se definió.
-4. Plan B sin red (R6): corre el backend en la laptop del demo (`pnpm start`) y el front apuntando a `http://localhost:8787`. Todo el flujo funciona sin internet, salvo Telegram.
+El backend corre en **Cloudflare Workers**: un Worker de entrada reenvía todo a un Durable Object que guarda el estado, y un cron cada 5 minutos ejecuta `/api/jobs/tick` (se pausa mientras el reloj de demo está simulado). La IA usa el binding de Workers AI, sin tokens extra.
+
+1. Despliegue (lo hace el backend): `cd backend && pnpm run deploy`. La URL queda como `https://la-cita-api.<subdominio>.workers.dev`.
+2. En el front cambia `*_API_URL` a esa URL y pide el `ADMIN_TOKEN` al backend para las rutas de demo.
+3. CORS está abierto por defecto. Si quieres restringirlo, el backend define `CORS_ORIGIN` con la URL del front.
+4. Plan B sin red (R6): corre el backend en la laptop del demo con `cd backend && pnpm start` (puerto 8787, estado en memoria) y apunta el front a `http://localhost:8787`. Todo el flujo funciona sin internet, salvo Telegram y la IA (que cae a reglas locales).
 
 ## 9. Cómo pedir cambios al backend
 
