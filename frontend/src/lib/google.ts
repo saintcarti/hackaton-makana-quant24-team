@@ -1,0 +1,141 @@
+// Google Identity Services (modelo de token). El token vive solo en memoria:
+// el calendario se lee en el navegador y se olvida al cerrar la pestaña (R2).
+
+interface TokenResponse {
+  access_token?: string;
+  expires_in?: number;
+  error?: string;
+}
+
+interface GoogleOAuth {
+  accounts: {
+    oauth2: {
+      initTokenClient(config: {
+        client_id: string;
+        scope: string;
+        callback: (r: TokenResponse) => void;
+        error_callback?: (e: { type: string }) => void;
+      }): { requestAccessToken(opts?: { prompt?: string }): void };
+      revoke(token: string, done?: () => void): void;
+    };
+  };
+}
+
+declare global {
+  interface Window {
+    google?: GoogleOAuth;
+  }
+}
+
+const SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/calendar.readonly',
+].join(' ');
+
+export const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '';
+
+let gisPromise: Promise<void> | null = null;
+
+function loadGis(): Promise<void> {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  if (gisPromise) return gisPromise;
+  gisPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = () => resolve();
+    s.onerror = () => {
+      gisPromise = null;
+      reject(new Error('No se pudo cargar Google. Revisa la conexión.'));
+    };
+    document.head.appendChild(s);
+  });
+  return gisPromise;
+}
+
+export interface GoogleSession {
+  accessToken: string;
+  expiresAt: number;
+  name: string;
+  email: string;
+  picture?: string;
+}
+
+export async function signInWithGoogle(): Promise<GoogleSession> {
+  if (!googleClientId) throw new Error('Falta VITE_GOOGLE_CLIENT_ID.');
+  await loadGis();
+  const token = await new Promise<TokenResponse>((resolve, reject) => {
+    const client = window.google!.accounts.oauth2.initTokenClient({
+      client_id: googleClientId,
+      scope: SCOPES,
+      callback: (r) => (r.error || !r.access_token ? reject(new Error(r.error ?? 'Sin token')) : resolve(r)),
+      error_callback: (e) =>
+        reject(new Error(e.type === 'popup_closed' ? 'Cerraste la ventana de Google.' : 'Google no respondió.')),
+    });
+    client.requestAccessToken({ prompt: '' });
+  });
+
+  const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${token.access_token}` },
+  });
+  const profile = res.ok ? await res.json() : {};
+  return {
+    accessToken: token.access_token!,
+    expiresAt: Date.now() + (token.expires_in ?? 3600) * 1000,
+    name: profile.given_name ?? profile.name ?? 'Tú',
+    email: profile.email ?? '',
+    picture: profile.picture,
+  };
+}
+
+export function signOutGoogle(session: GoogleSession | null) {
+  if (session && window.google?.accounts?.oauth2) {
+    window.google.accounts.oauth2.revoke(session.accessToken);
+  }
+}
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+}
+
+export async function fetchEvents(session: GoogleSession, from: Date, to: Date): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({
+    timeMin: from.toISOString(),
+    timeMax: to.toISOString(),
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '250',
+  });
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    { headers: { Authorization: `Bearer ${session.accessToken}` } },
+  );
+  if (res.status === 401) throw new Error('La sesión de Google expiró. Vuelve a entrar.');
+  if (!res.ok) throw new Error('No pudimos leer tu calendario de Google.');
+  const data = await res.json();
+  type RawEvent = {
+    id: string;
+    summary?: string;
+    status?: string;
+    transparency?: string;
+    start: { dateTime?: string; date?: string };
+    end: { dateTime?: string; date?: string };
+  };
+  return ((data.items ?? []) as RawEvent[])
+    .filter((e) => e.status !== 'cancelled' && e.transparency !== 'transparent')
+    // Las citas que agenda La Cita ya se pintan desde el backend.
+    .filter((e) => !(e.summary ?? '').toLowerCase().includes('la cita'))
+    .map((e) => ({
+      id: e.id,
+      title: e.summary ?? 'Ocupado',
+      start: new Date(e.start.dateTime ?? `${e.start.date}T00:00:00`),
+      end: new Date(e.end.dateTime ?? `${e.end.date}T00:00:00`),
+      allDay: !e.start.dateTime,
+    }));
+}
