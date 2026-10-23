@@ -17,6 +17,8 @@ export interface Attachment {
   filename: string;
   /** Ruta relativa a la base de la API, p. ej. "/api/appointments/a_1234/ics". */
   url: string;
+  /** Enlace "Agregar a Google Calendar" prellenado. Muéstralo como botón junto al .ics. */
+  gcalUrl: string;
 }
 
 export interface Message {

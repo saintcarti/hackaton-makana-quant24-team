@@ -62,6 +62,8 @@ describe('flujo La Cita', () => {
       engine.handleInbound(c, 'u1', { action: `slot:${capture.id}:${capture.options[0]}` }),
     );
     expect(replies[0]!.attachment?.kind).toBe('ics');
+    expect(replies[0]!.attachment?.gcalUrl).toContain('calendar.google.com/calendar/render?action=TEMPLATE');
+    expect(replies[0]!.attachment?.gcalUrl).toContain('dates=20261026T221500Z%2F20261026T225500Z');
 
     // Lunes 18:30 -> tick manda un único recordatorio
     await clock(zonedToUtc(2026, 10, 26, 18, 30));

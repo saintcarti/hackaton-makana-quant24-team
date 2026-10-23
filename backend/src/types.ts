@@ -72,6 +72,8 @@ export interface Attachment {
   apptId: string;
   filename: string;
   url: string;
+  /** Enlace "Agregar a Google Calendar" (sin OAuth): abre el evento prellenado en Google Calendar. */
+  gcalUrl: string;
 }
 
 export interface OutMessage {

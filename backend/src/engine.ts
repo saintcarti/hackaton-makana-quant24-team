@@ -1,4 +1,4 @@
-import { buildIcs } from './ics.js';
+import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
@@ -116,8 +116,9 @@ export class Engine {
           if (appt?.startsAt) ics = buildIcs(appt, user, c.now);
         }
         await tg.send(user.channel.chatId, msg, ics);
+        console.log(JSON.stringify({ evt: 'tg_sent', userId: user.id, msg: msg.id, ics: !!ics }));
       } catch (err) {
-        console.error('[telegram] no se pudo enviar:', (err as Error).message);
+        console.error(JSON.stringify({ evt: 'tg_error', userId: user.id, msg: msg.id, message: (err as Error).message }));
       }
     }
   }
@@ -191,8 +192,14 @@ export class Engine {
       .sort((x, y) => x.startsAt!.localeCompare(y.startsAt!))[0];
   }
 
-  private icsAttachment(a: Appointment) {
-    return { kind: 'ics' as const, apptId: a.id, filename: 'la-cita.ics', url: `/api/appointments/${a.id}/ics` };
+  private icsAttachment(c: Ctx, a: Appointment) {
+    return {
+      kind: 'ics' as const,
+      apptId: a.id,
+      filename: 'la-cita.ics',
+      url: `/api/appointments/${a.id}/ics`,
+      gcalUrl: googleCalendarUrl(a, c.db.users[a.userId]!),
+    };
   }
 
   // ───────────────────────── usuarios ─────────────────────────
@@ -270,7 +277,7 @@ export class Engine {
     this.event(c, user.id, wasMove ? 'moved' : 'slot_chosen', appt.id, { to: appt.startsAt });
     this.emit(c, user.id, {
       text: wasMove ? T.moved(formatSlot(when)) : T.slotChosen(formatSlot(when), appt.venue),
-      attachment: this.icsAttachment(appt),
+      attachment: this.icsAttachment(c, appt),
     });
   }
 
@@ -311,7 +318,7 @@ export class Engine {
     this.event(c, userId, 'default_applied', appt.id, { to: appt.startsAt });
     this.emit(c, userId, {
       text: T.defaultApplied(formatSlot(chosen), appt.venue),
-      attachment: this.icsAttachment(appt),
+      attachment: this.icsAttachment(c, appt),
       buttons: [{ label: T.btn.move, action: 'move' }],
     });
     return appt;
