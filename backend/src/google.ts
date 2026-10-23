@@ -117,6 +117,21 @@ export async function accessToken(cfg: GoogleConfig, link: GoogleLink, now = Dat
   return link.accessToken!;
 }
 
+/**
+ * Ejecuta `fn` con un access token vigente. Si Google lo rechaza (401: revocado o caducado antes de tiempo),
+ * descarta el token en caché, pide uno nuevo con el refresh token y reintenta una vez.
+ */
+export async function withToken<T>(cfg: GoogleConfig, link: GoogleLink, now: number, fn: (token: string) => Promise<T>): Promise<T> {
+  try {
+    return await fn(await accessToken(cfg, link, now));
+  } catch (err) {
+    if (!/401/.test((err as Error).message)) throw err;
+    link.accessToken = undefined;
+    link.expiresAt = undefined;
+    return fn(await accessToken(cfg, link, now));
+  }
+}
+
 // ───────────── Calendar ─────────────
 
 async function api(token: string, method: string, path: string, body?: unknown) {

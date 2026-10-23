@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
-import { accessToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
+import { accessToken, withToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
 import { addDays, localParts, mondayOf, TZ, zonedToUtc } from './time.js';
@@ -361,7 +361,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       const link = x.db.google?.[id];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
       try {
-        const events = await listEvents(await accessToken(g, link, x.now.getTime()), x.now.getTime(), x.now.getTime() + 21 * 86400_000);
+        const events = await withToken(g, link, x.now.getTime(), (t) => listEvents(t, x.now.getTime(), x.now.getTime() + 21 * 86400_000));
         return { events };
       } catch (err) {
         throw new DomainError('google_calendar', (err as Error).message, 502);
@@ -424,7 +424,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const out = await engine.run(async (x) => {
       const link = x.db.google?.[userId];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
-      const deleted = await clearDemoEvents(await accessToken(g, link, x.now.getTime()));
+      const deleted = await withToken(g, link, x.now.getTime(), clearDemoEvents);
       link.busyCache = undefined;
       return { deleted };
     });

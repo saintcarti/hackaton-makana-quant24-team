@@ -1,6 +1,6 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
-import { GoogleConfig, accessToken, freeBusy, upsertEvent } from './google.js';
+import { GoogleConfig, freeBusy, upsertEvent, withToken } from './google.js';
 import { Busy, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
@@ -268,8 +268,7 @@ export class Engine {
         continue;
       }
       try {
-        const token = await accessToken(g, link, c.now.getTime());
-        const intervals = await freeBusy(token, c.now.getTime(), c.now.getTime() + 21 * 86400_000);
+        const intervals = await withToken(g, link, c.now.getTime(), (t) => freeBusy(t, c.now.getTime(), c.now.getTime() + 21 * 86400_000));
         link.busyCache = { at: c.now.getTime(), intervals };
         c.busy.set(userId, intervals.map(([start, end]) => ({ start, end })));
       } catch (err) {
@@ -288,8 +287,7 @@ export class Engine {
       const user = appt && c.db.users[appt.userId];
       if (!appt?.startsAt || !link || !user) continue;
       try {
-        const token = await accessToken(g, link, c.now.getTime());
-        appt.eventId = await upsertEvent(token, appt, user);
+        appt.eventId = await withToken(g, link, c.now.getTime(), (t) => upsertEvent(t, appt, user));
         link.busyCache = undefined; // el calendario cambió: refrescar la próxima vez
       } catch (err) {
         console.warn(JSON.stringify({ evt: 'gcal_sync_error', apptId: id, message: (err as Error).message }));
