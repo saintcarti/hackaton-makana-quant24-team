@@ -14,7 +14,8 @@ interface Props {
   source: PrefsSource;
   entries: FitEntry[];
   weekTitle: string;
-  googleOn: boolean;
+  /** Fuente de las horas ocupadas, como frase («tu calendario de Google»); null si no hay ninguna. */
+  calendarPhrase: string | null;
   saveNote: string | null;
   onSave: (p: SessionPrefs) => Promise<void>;
 }
@@ -35,7 +36,7 @@ const DAY_FULL: Record<number, string> = {
   0: 'domingo',
 };
 
-export default function SessionSetup({ prefs, source, entries, weekTitle, googleOn, saveNote, onSave }: Props) {
+export default function SessionSetup({ prefs, source, entries, weekTitle, calendarPhrase, saveNote, onSave }: Props) {
   const [mode, setMode] = useState<Mode>(source === 'default' ? 'ask-gym' : 'summary');
   const [draft, setDraft] = useState<SessionPrefs>(prefs);
   const [saving, setSaving] = useState(false);
@@ -273,11 +274,11 @@ export default function SessionSetup({ prefs, source, entries, weekTitle, google
             </li>
           ))}
         </ul>
-        {!googleOn && (
-          <p className="fineprint" style={{ margin: '0.5rem 0 0' }}>
-            Sin Google Calendar conectado, esto solo mira el horario del gym, tu ventana y tus citas de La Cita.
-          </p>
-        )}
+        <p className="fineprint" style={{ margin: '0.5rem 0 0' }}>
+          {calendarPhrase
+            ? `Mira el horario del gym, tu ventana, tus citas de La Cita y ${calendarPhrase}.`
+            : 'Sin calendario conectado, esto solo mira el horario del gym, tu ventana y tus citas de La Cita.'}
+        </p>
       </div>
     </section>
   );

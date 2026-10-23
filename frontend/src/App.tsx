@@ -23,9 +23,19 @@ import {
   type GoogleSession,
 } from './lib/google';
 import { loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
+import { SAMPLE_LABEL, sampleWorkWeek } from './lib/sampleCalendar';
 
 const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) || undefined;
 const SESSION_KEY = 'lacita.session';
+const SAMPLE_KEY = 'lacita.sampleCalendar';
+
+function readSampleFlag() {
+  try {
+    return localStorage.getItem(SAMPLE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 const RETRY_MS = 2500;
 const DATA_RETRY_MS = 3000;
 const USERS_POLL_MS = 10_000;
@@ -75,6 +85,7 @@ export default function App() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [gState, setGState] = useState<GoogleState>('off');
   const [gNote, setGNote] = useState<string | null>(null);
+  const [sampleOn, setSampleOn] = useState(readSampleFlag);
 
   const [prefsVersion, setPrefsVersion] = useState(0);
   const [prefsNote, setPrefsNote] = useState<string | null>(null);
@@ -239,7 +250,40 @@ export default function App() {
     };
   }, [google, cal?.weekOf, userId, isDemoUser]);
 
+  // Plan B sin Google ni red (R6): la semana de ejemplo de Camila sintética, rotulada como inventada.
+  const sampleActive = sampleOn && !google && isDemoUser;
+  useEffect(() => {
+    if (google || !cal || !userId || !isDemoUser) return;
+    if (!sampleOn) {
+      setEvents([]);
+      return;
+    }
+    const evs = sampleWorkWeek(cal.weekOf);
+    setEvents(evs);
+    api
+      .syncBusy(
+        userId,
+        cal.weekOf,
+        evs.map((e) => ({ start: e.start.toISOString(), end: e.end.toISOString() })),
+      )
+      .catch(() => undefined);
+  }, [google, sampleOn, cal?.weekOf, userId, isDemoUser]);
+
+  function toggleSample() {
+    setSampleOn((on) => {
+      const next = !on;
+      try {
+        if (next) localStorage.setItem(SAMPLE_KEY, '1');
+        else localStorage.removeItem(SAMPLE_KEY);
+      } catch {
+        /* sin almacenamiento: vale solo para esta pestaña */
+      }
+      return next;
+    });
+  }
+
   const current = users.find((u) => u.id === userId) ?? null;
+  const busyLabel = isDemoUser && gState === 'on' ? 'Tu calendario de Google' : sampleActive ? SAMPLE_LABEL : null;
 
   // ── Sesión que cabe ──────────────────────────────────────────────────────────
   // La lista de usuarias se refresca cada 10 s con objetos nuevos: se recalcula solo si cambió el contenido.
@@ -436,7 +480,13 @@ export default function App() {
               source={prefsState.source}
               entries={fitEntries}
               weekTitle={weekTitle}
-              googleOn={gState === 'on'}
+              calendarPhrase={
+                isDemoUser && gState === 'on'
+                  ? 'tu calendario de Google'
+                  : sampleActive
+                    ? 'el calendario de ejemplo de Camila (inventado)'
+                    : null
+              }
               saveNote={shownNote}
               onSave={savePrefs}
             />
@@ -447,6 +497,9 @@ export default function App() {
               targetLabel={current ? userLabel(current) : userId}
               now={now}
               simulated={simulated}
+              sampleOn={sampleOn}
+              googleConnected={!!google}
+              onToggleSample={toggleSample}
               onDone={(opts) => {
                 if (opts?.resetChat) resetChat();
                 if (opts?.followClock) setWeekOf(null);
@@ -463,6 +516,7 @@ export default function App() {
             window={view === 'camila' && prefsState ? prefsState.prefs.window : current?.window ?? null}
             gymHours={view === 'camila' && prefsState ? prefsState.prefs.gymHours : null}
             suggestions={view === 'camila' ? suggestions : []}
+            busyLabel={busyLabel}
             google={isDemoUser ? gState : 'off'}
             googleNote={isDemoUser ? gNote : null}
             canConnect={!!googleClientId && isDemoUser}

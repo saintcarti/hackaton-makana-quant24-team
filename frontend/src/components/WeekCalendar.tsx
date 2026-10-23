@@ -19,6 +19,8 @@ interface Props {
   window: { start: string; end: string } | null;
   gymHours?: { open: string; close: string } | null;
   suggestions?: Suggestion[];
+  /** De dónde salen las horas ocupadas (Google o el calendario de ejemplo); null si no hay. */
+  busyLabel?: string | null;
   google: GoogleState;
   googleNote: string | null;
   canConnect: boolean;
@@ -43,6 +45,7 @@ export default function WeekCalendar({
   window: gymWindow,
   gymHours,
   suggestions = [],
+  busyLabel = null,
   google,
   googleNote,
   canConnect,
@@ -142,9 +145,9 @@ export default function WeekCalendar({
             <i className="sw sw-suggest" /> Dónde cabe tu sesión
           </span>
         )}
-        {google === 'on' && (
+        {busyLabel && (
           <span>
-            <i className="sw sw-busy" /> Tu calendario de Google
+            <i className="sw sw-busy" /> {busyLabel}
           </span>
         )}
         {gymWindow && (

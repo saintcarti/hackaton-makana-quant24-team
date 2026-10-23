@@ -1,13 +1,33 @@
 import { MouseEvent, useRef, useState } from 'react';
 import { api, getAdminToken, setAdminToken } from '../lib/api';
 import { capitalize, fmtDay, fmtTime } from '../lib/format';
+import { sampleIcs } from '../lib/sampleCalendar';
 import ApiUrlForm from './ApiUrlForm';
+
+/** Primera semana del historial semilla: el .ics cubre desde ahí para que también calcen las semanas pasadas. */
+const SEED_FIRST_WEEK = '2026-09-07';
+const ICS_WEEKS = 16;
+
+function downloadSampleIcs() {
+  const blob = new Blob([sampleIcs(SEED_FIRST_WEEK, ICS_WEEKS)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'camila-sintetica-semana-laboral.ics';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 interface Props {
   userId: string;
   targetLabel: string;
   now: string | null;
   simulated: boolean;
+  sampleOn: boolean;
+  googleConnected: boolean;
+  onToggleSample: () => void;
   onDone: (opts?: { resetChat?: boolean; followClock?: boolean }) => void;
   onError: (msg: string) => void;
   onInfo: (msg: string) => void;
@@ -25,7 +45,18 @@ interface Step {
 // (en «Lunes 18:30» eso salta el reloj a la semana siguiente y rompe el resto del guion).
 const COOLDOWN_MS = 700;
 
-export default function DemoPanel({ userId, targetLabel, now, simulated, onDone, onError, onInfo }: Props) {
+export default function DemoPanel({
+  userId,
+  targetLabel,
+  now,
+  simulated,
+  sampleOn,
+  googleConnected,
+  onToggleSample,
+  onDone,
+  onError,
+  onInfo,
+}: Props) {
   const [running, setRunning] = useState<string | null>(null);
   const runningRef = useRef(false);
   const [open, setOpen] = useState(true);
@@ -169,6 +200,20 @@ export default function DemoPanel({ userId, targetLabel, now, simulated, onDone,
               }
             >
               Volver a la hora real
+            </button>
+          </div>
+          <div className="demo-tools">
+            <button className="btn btn-sm" aria-pressed={sampleOn} onClick={onToggleSample} disabled={googleConnected}>
+              {sampleOn ? 'Apagar calendario de ejemplo' : 'Usar calendario de ejemplo'}
+            </button>
+            <span className="small muted">
+              {googleConnected
+                ? 'Google está conectado: manda su calendario.'
+                : 'Semana laboral inventada de Camila, sin Google ni red (plan B, R6).'}
+            </span>
+            <span style={{ flex: 1 }} />
+            <button className="btn btn-sm btn-quiet" onClick={downloadSampleIcs}>
+              Bajar .ics para la cuenta de Google sintética
             </button>
           </div>
           <ApiUrlForm />

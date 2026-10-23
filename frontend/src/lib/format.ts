@@ -53,6 +53,21 @@ export function santiagoParts(date: Date) {
   };
 }
 
+/** Instante UTC de una fecha y hora locales de Santiago (dos pasadas para cruzar bien un cambio de horario). */
+export function santiagoToDate(dateISO: string, hhmm: string): Date {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, h, mi);
+  const offsetAt = (t: number) => {
+    const p = santiagoParts(new Date(t));
+    const [py, pm, pd] = p.date.split('-').map(Number);
+    return Date.UTC(py, pm - 1, pd, Math.floor(p.minutes / 60), p.minutes % 60) - t;
+  };
+  let t = guess - offsetAt(guess);
+  t = guess - offsetAt(t);
+  return new Date(t);
+}
+
 export function hhmmToMinutes(hhmm: string) {
   const [h, m] = hhmm.split(':').map(Number);
   return h * 60 + (m || 0);
