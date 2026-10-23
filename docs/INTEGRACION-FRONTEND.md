@@ -205,7 +205,7 @@ El backend lo maneja entero. El frontend no necesita nada, salvo mostrar un enla
 
 El backend corre en **Cloudflare Workers**: un Worker de entrada reenvía todo a un Durable Object que guarda el estado, y un cron cada 5 minutos ejecuta `/api/jobs/tick` (se pausa mientras el reloj de demo está simulado). La IA usa el binding de Workers AI, sin tokens extra.
 
-1. Despliegue (lo hace el backend): `cd backend && pnpm run deploy`. La URL queda como `https://la-cita-api.<subdominio>.workers.dev`.
+1. Despliegue (lo hace el backend): `cd backend && pnpm run deploy`. **Ya está desplegado en `https://la-cita-api.x-liberona.workers.dev`** (usa esa URL como `*_API_URL`).
 2. En el front cambia `*_API_URL` a esa URL y pide el `ADMIN_TOKEN` al backend para las rutas de demo.
 3. CORS está abierto por defecto. Si quieres restringirlo, el backend define `CORS_ORIGIN` con la URL del front.
 4. Plan B sin red (R6): corre el backend en la laptop del demo con `cd backend && pnpm start` (puerto 8787, estado en memoria) y apunta el front a `http://localhost:8787`. Todo el flujo funciona sin internet, salvo Telegram y la IA (que cae a reglas locales).
