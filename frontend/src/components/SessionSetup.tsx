@@ -8,6 +8,7 @@ import {
   type PrefsSource,
   type SessionPrefs,
 } from '../lib/prefs';
+import Sheet from './Sheet';
 
 interface Props {
   prefs: SessionPrefs;
@@ -25,7 +26,7 @@ interface Props {
   onSave: (p: SessionPrefs) => Promise<void>;
 }
 
-type Mode = 'ask-gym' | 'ask-duration' | 'summary' | 'edit';
+type Step = 'ask-gym' | 'ask-duration' | 'summary';
 
 const DAY_SHORT = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 // Orden de la semana en pantalla (lunes primero) → convención 0 = domingo.
@@ -53,24 +54,20 @@ export default function SessionSetup({
   saveNote,
   onSave,
 }: Props) {
-  const [mode, setMode] = useState<Mode>(source === 'default' ? 'ask-gym' : 'summary');
+  const [step, setStep] = useState<Step>(source === 'default' ? 'ask-gym' : 'summary');
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<SessionPrefs>(prefs);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-  const gymOpenRef = useRef<HTMLInputElement>(null);
 
   // Si cambian las reglas desde afuera (otra usuaria, backend) y no se está editando, se reflejan.
   useEffect(() => {
-    if (mode !== 'edit') setDraft(prefs);
-  }, [prefs, mode]);
-
-  useEffect(() => {
-    if (mode === 'edit') gymOpenRef.current?.focus();
-  }, [mode]);
+    if (!editing) setDraft(prefs);
+  }, [prefs, editing]);
 
   // Si las reglas llegan configuradas desde el backend mientras se mostraba la primera pregunta, pasa al resumen.
   useEffect(() => {
-    if (source !== 'default' && !savingRef.current) setMode((m) => (m === 'ask-gym' || m === 'ask-duration' ? 'summary' : m));
+    if (source !== 'default' && !savingRef.current) setStep((s) => (s === 'summary' ? s : 'summary'));
   }, [source]);
 
   async function save(next: SessionPrefs) {
@@ -79,11 +76,22 @@ export default function SessionSetup({
     setSaving(true);
     try {
       await onSave(next);
-      setMode('summary');
+      setStep('summary');
+      setEditing(false);
     } finally {
       savingRef.current = false;
       setSaving(false);
     }
+  }
+
+  function openEditor() {
+    setDraft(prefs);
+    setEditing(true);
+  }
+
+  function cancelEditor() {
+    setDraft(prefs);
+    setEditing(false);
   }
 
   const problem = prefsProblem(draft);
@@ -91,7 +99,103 @@ export default function SessionSetup({
   const toggleDay = (day: number) =>
     set({ days: draft.days.includes(day) ? draft.days.filter((d) => d !== day) : [...draft.days, day].sort() });
 
-  if (mode === 'ask-gym') {
+  const editor = (
+    <Sheet
+      open={editing}
+      title="Tu sesión"
+      confirmLabel={saving ? 'Guardando…' : 'Guardar'}
+      confirmDisabled={!!problem || saving}
+      onCancel={cancelEditor}
+      onConfirm={() => save(draft)}
+    >
+      <div className="setup-grid">
+        <fieldset>
+          <legend>Horario del gym</legend>
+          <div className="time-pair">
+            <input
+              type="time"
+              step={900}
+              value={draft.gymHours.open}
+              onChange={(e) => set({ gymHours: { ...draft.gymHours, open: e.target.value } })}
+              aria-label="Abre a las"
+            />
+            <span aria-hidden="true">–</span>
+            <input
+              type="time"
+              step={900}
+              value={draft.gymHours.close}
+              onChange={(e) => set({ gymHours: { ...draft.gymHours, close: e.target.value } })}
+              aria-label="Cierra a las"
+            />
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Tu ventana</legend>
+          <div className="time-pair">
+            <input
+              type="time"
+              step={900}
+              value={draft.window.start}
+              onChange={(e) => set({ window: { ...draft.window, start: e.target.value } })}
+              aria-label="Desde"
+            />
+            <span aria-hidden="true">–</span>
+            <input
+              type="time"
+              step={900}
+              value={draft.window.end}
+              onChange={(e) => set({ window: { ...draft.window, end: e.target.value } })}
+              aria-label="Hasta"
+            />
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Duración de la sesión</legend>
+          <div className="chips">
+            {SESSION_OPTIONS.map((m) => (
+              <button key={m} type="button" className="chip-btn" aria-pressed={draft.sessionMin === m} onClick={() => set({ sessionMin: m })}>
+                {m} min
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Veces por semana</legend>
+          <div className="chips">
+            {PER_WEEK_OPTIONS.map((n) => (
+              <button key={n} type="button" className="chip-btn" aria-pressed={draft.perWeek === n} onClick={() => set({ perWeek: n })}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className="span-2">
+          <legend>Días posibles</legend>
+          <div className="chips">
+            {WEEK_ORDER.map((day) => (
+              <button
+                key={day}
+                type="button"
+                className="chip-btn day"
+                aria-pressed={draft.days.includes(day)}
+                aria-label={DAY_FULL[day]}
+                onClick={() => toggleDay(day)}
+              >
+                {DAY_LETTER[day]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+      {problem && (
+        <p className="setup-problem" role="alert">
+          {problem}
+        </p>
+      )}
+    </Sheet>
+  );
+
+  if (step === 'ask-gym') {
     return (
       <section className="panel setup" aria-label="Tu sesión">
         <div className="eyebrow">Antes de buscar dónde cabe tu sesión</div>
@@ -99,18 +203,19 @@ export default function SessionSetup({
           ¿Tu gym abre de {prefs.gymHours.open} a {prefs.gymHours.close}?
         </h2>
         <div className="setup-actions">
-          <button className="btn btn-primary" onClick={() => setMode('ask-duration')}>
+          <button className="btn btn-primary" onClick={() => setStep('ask-duration')}>
             Sí, ese es
           </button>
-          <button className="btn" onClick={() => setMode('edit')}>
+          <button className="btn" onClick={openEditor}>
             Otro horario
           </button>
         </div>
+        {editor}
       </section>
     );
   }
 
-  if (mode === 'ask-duration') {
+  if (step === 'ask-duration') {
     return (
       <section className="panel setup" aria-label="Tu sesión">
         <div className="eyebrow">Una más y listo</div>
@@ -135,114 +240,6 @@ export default function SessionSetup({
     );
   }
 
-  if (mode === 'edit') {
-    return (
-      <section className="panel setup" aria-label="Editar tu sesión">
-        <div className="eyebrow">Tu cita, tus reglas</div>
-        <div className="setup-grid">
-          <fieldset>
-            <legend>Horario del gym</legend>
-            <div className="time-pair">
-              <input
-                ref={gymOpenRef}
-                type="time"
-                step={900}
-                value={draft.gymHours.open}
-                onChange={(e) => set({ gymHours: { ...draft.gymHours, open: e.target.value } })}
-                aria-label="Abre a las"
-              />
-              <span aria-hidden="true">–</span>
-              <input
-                type="time"
-                step={900}
-                value={draft.gymHours.close}
-                onChange={(e) => set({ gymHours: { ...draft.gymHours, close: e.target.value } })}
-                aria-label="Cierra a las"
-              />
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Tu ventana</legend>
-            <div className="time-pair">
-              <input
-                type="time"
-                step={900}
-                value={draft.window.start}
-                onChange={(e) => set({ window: { ...draft.window, start: e.target.value } })}
-                aria-label="Desde"
-              />
-              <span aria-hidden="true">–</span>
-              <input
-                type="time"
-                step={900}
-                value={draft.window.end}
-                onChange={(e) => set({ window: { ...draft.window, end: e.target.value } })}
-                aria-label="Hasta"
-              />
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Duración de la sesión</legend>
-            <div className="chips">
-              {SESSION_OPTIONS.map((m) => (
-                <button key={m} type="button" className="chip-btn" aria-pressed={draft.sessionMin === m} onClick={() => set({ sessionMin: m })}>
-                  {m} min
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset>
-            <legend>Veces por semana</legend>
-            <div className="chips">
-              {PER_WEEK_OPTIONS.map((n) => (
-                <button key={n} type="button" className="chip-btn" aria-pressed={draft.perWeek === n} onClick={() => set({ perWeek: n })}>
-                  {n}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-          <fieldset className="span-2">
-            <legend>Días posibles</legend>
-            <div className="chips">
-              {WEEK_ORDER.map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  className="chip-btn day"
-                  aria-pressed={draft.days.includes(day)}
-                  aria-label={DAY_FULL[day]}
-                  onClick={() => toggleDay(day)}
-                >
-                  {DAY_LETTER[day]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-        </div>
-        {problem && (
-          <p className="setup-problem" role="alert">
-            {problem}
-          </p>
-        )}
-        <div className="setup-actions">
-          <button className="btn btn-primary" disabled={!!problem || saving} onClick={() => save(draft)}>
-            {saving ? 'Guardando…' : 'Guardar'}
-          </button>
-          <button
-            className="btn btn-quiet"
-            disabled={saving}
-            onClick={() => {
-              setDraft(prefs);
-              setMode(source === 'default' ? 'ask-gym' : 'summary');
-            }}
-          >
-            Cancelar
-          </button>
-        </div>
-      </section>
-    );
-  }
-
   // A la semana visible no le queda nada útil por delante (p. ej. domingo 20:00): se ofrece mirar la siguiente.
   const weekOver =
     !restWeek &&
@@ -256,7 +253,7 @@ export default function SessionSetup({
           <div className="eyebrow">Tu sesión</div>
           <p className="setup-summary">{prefsSummary(prefs)}</p>
         </div>
-        <button className="btn btn-sm" onClick={() => setMode('edit')}>
+        <button className="btn btn-sm" onClick={openEditor}>
           Editar
         </button>
       </div>
@@ -311,6 +308,7 @@ export default function SessionSetup({
             : 'Sin calendario conectado, esto solo mira el horario del gym, tu ventana y tus citas de La Cita.'}
         </p>
       </div>
+      {editor}
     </section>
   );
 }

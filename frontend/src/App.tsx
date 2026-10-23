@@ -109,6 +109,9 @@ export default function App() {
 
   const [view, setView] = useState<'camila' | 'equipo'>('camila');
   const [toast, setToast] = useState<string | null>(null);
+  // La barra es transparente arriba y se «materializa» cuando hay contenido pasando por debajo (Apple: scroll edge).
+  const [scrolled, setScrolled] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const {
     messages,
     merge,
@@ -138,6 +141,14 @@ export default function App() {
   }, []);
 
   useEffect(preloadGoogle, []);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([entry]) => setScrolled(!entry.isIntersecting));
+    io.observe(el);
+    return () => io.disconnect();
+  }, [entered]);
 
   // Al entrar: usuaria demo, conversaciones (simulador + Telegram) y reloj. Si la API no responde, reintenta sola.
   useEffect(() => {
@@ -438,7 +449,8 @@ export default function App() {
 
   return (
     <>
-      <header className="topbar">
+      <div ref={sentinelRef} className="scroll-sentinel" aria-hidden="true" />
+      <header className="topbar" data-scrolled={scrolled ? 'true' : undefined}>
         <span className="brand">La Cita</span>
         <div className="seg" role="group" aria-label="Vista">
           <button aria-pressed={view === 'camila'} onClick={() => setView('camila')}>
@@ -584,7 +596,7 @@ export default function App() {
       </div>
 
       {toast && (
-        <div className="toast" role="status">
+        <div className="hud" role="status">
           {toast}
         </div>
       )}

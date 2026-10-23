@@ -20,6 +20,20 @@ interface Props {
 const msgKey = (m: Message) => `${m.n}:${m.at}`;
 const LOCK_MAX_MS = 4000;
 
+/** Posición en un grupo de mensajes seguidos del mismo lado (estilo iMessage). Botones o adjunto cierran el grupo. */
+function groupPos(list: Message[], i: number): 'single' | 'first' | 'middle' | 'last' {
+  const m = list[i];
+  const prev = list[i - 1];
+  const next = list[i + 1];
+  const closes = (x: Message) => !!x.buttons?.length || !!x.attachment;
+  const joinsPrev = !!prev && prev.dir === m.dir && !closes(prev);
+  const joinsNext = !!next && next.dir === m.dir && !closes(m);
+  if (joinsPrev && joinsNext) return 'middle';
+  if (joinsPrev) return 'last';
+  if (joinsNext) return 'first';
+  return 'single';
+}
+
 export function userLabel(u: User) {
   if (u.channel.type === 'telegram') return `Telegram · chat …${u.id.replace(/^tg_/, '').slice(-4)}`;
   return u.synthetic ? `${u.name} (sintética)` : u.name;
@@ -137,8 +151,10 @@ export default function Chat({
                 : 'Todavía no hay mensajes. El domingo a las 20:00 llega la primera pregunta: usa el panel de demo para adelantar el reloj.'}
           </p>
         )}
-        {messages.map((m) => (
-          <div key={msgKey(m)} className={`msg ${m.dir}`}>
+        {messages.map((m, i) => {
+          const pos = groupPos(messages, i);
+          return (
+          <div key={msgKey(m)} className={`msg ${m.dir} g-${pos}`}>
             <div className="bubble">{m.text}</div>
             {m.buttons && m.buttons.length > 0 && (
               <div className="kb">
@@ -163,9 +179,10 @@ export default function Chat({
                 Agregar a mi calendario
               </a>
             )}
-            <time dateTime={m.at}>{fmtTime(m.at)}</time>
+            {(pos === 'last' || pos === 'single') && <time dateTime={m.at}>{fmtTime(m.at)}</time>}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <form className="chat-compose" onSubmit={onSubmit}>
