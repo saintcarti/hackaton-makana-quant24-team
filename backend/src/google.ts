@@ -165,7 +165,7 @@ export async function freeBusy(token: string, fromMs: number, toMs: number): Pro
     timeZone: TZ,
     items: [{ id: 'primary' }],
   });
-  if (r.status !== 200) throw new Error(`Calendar freeBusy ${r.status}`);
+  if (r.status !== 200) throw new Error(`Calendar freeBusy ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
   const busy = (r.json?.calendars?.primary?.busy ?? []) as Array<{ start: string; end: string }>;
   return busy.map((b) => [Date.parse(b.start), Date.parse(b.end)] as [number, number]);
 }
@@ -178,7 +178,7 @@ export async function createDemoEvent(token: string, summary: string, start: Dat
     end: { dateTime: end.toISOString(), timeZone: TZ },
     extendedProperties: { private: { laCitaDemo: '1' } },
   });
-  if (r.status !== 200) throw new Error(`Calendar demo POST ${r.status}`);
+  if (r.status !== 200) throw new Error(`Calendar demo POST ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
   return r.json.id as string;
 }
 
@@ -189,7 +189,7 @@ export async function clearDemoEvents(token: string): Promise<number> {
     const q = new URLSearchParams({ privateExtendedProperty: 'laCitaDemo=1', maxResults: '100', showDeleted: 'false' });
     if (pageToken) q.set('pageToken', pageToken);
     const r = await api(token, 'GET', `/calendars/primary/events?${q.toString()}`);
-    if (r.status !== 200) throw new Error(`Calendar list ${r.status}`);
+    if (r.status !== 200) throw new Error(`Calendar list ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
     for (const ev of r.json.items ?? []) {
       const d = await api(token, 'DELETE', `/calendars/primary/events/${encodeURIComponent(ev.id)}`);
       if (d.status === 204 || d.status === 200) deleted += 1;
@@ -197,4 +197,25 @@ export async function clearDemoEvents(token: string): Promise<number> {
     pageToken = r.json.nextPageToken;
   } while (pageToken);
   return deleted;
+}
+
+/** Eventos próximos del calendario principal (para verificar/mostrar en el panel de demo). */
+export async function listEvents(token: string, fromMs: number, toMs: number) {
+  const q = new URLSearchParams({
+    timeMin: new Date(fromMs).toISOString(),
+    timeMax: new Date(toMs).toISOString(),
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '100',
+  });
+  const r = await api(token, 'GET', `/calendars/primary/events?${q.toString()}`);
+  if (r.status !== 200) throw new Error(`Calendar events ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
+  return (r.json.items ?? []).map((e: any) => ({
+    id: e.id as string,
+    title: (e.summary ?? '') as string,
+    start: (e.start?.dateTime ?? e.start?.date) as string,
+    end: (e.end?.dateTime ?? e.end?.date) as string,
+    isLaCita: e.extendedProperties?.private?.laCita === '1',
+    isDemoMeeting: e.extendedProperties?.private?.laCitaDemo === '1',
+  }));
 }

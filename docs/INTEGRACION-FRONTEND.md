@@ -178,6 +178,7 @@ Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendar
 | GET | `/users/:id/google` | `GoogleStatus`: `{ configured, connected, connectUrl }` |
 | GET | `/google/connect?userId=:id` | Redirige a Google para autorizar. Abre `connectUrl` en una pestaña nueva; al terminar, Google devuelve a una página «Calendario conectado» |
 | POST | `/users/:id/google/disconnect` | Desconecta el calendario |
+| GET | `/users/:id/google/events` (admin) | `{ events: [{ id, title, start, end, isLaCita, isDemoMeeting }] }`: próximos 21 días del calendario conectado; útil para mostrar el calendario real en el panel |
 | POST | `/google/demo-events` (admin) | `{ userId }`: siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas) |
 | POST | `/google/demo-events/clear` (admin) | `{ userId }`: borra esos eventos de demo |
 

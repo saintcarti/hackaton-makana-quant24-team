@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
-import { accessToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, signState, verifyState } from './google.js';
+import { accessToken, authUrl, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
 import { addDays, localParts, mondayOf, TZ, zonedToUtc } from './time.js';
@@ -310,6 +310,25 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     return c.json({ connected: false });
   });
 
+
+  /** Próximos eventos del calendario conectado (reuniones de demo + citas de La Cita), para el panel de demo. */
+  app.get('/api/users/:id/google/events', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const id = c.req.param('id');
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[id];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      try {
+        const events = await listEvents(await accessToken(g, link, x.now.getTime()), x.now.getTime(), x.now.getTime() + 21 * 86400_000);
+        return { events };
+      } catch (err) {
+        throw new DomainError('google_calendar', (err as Error).message, 502);
+      }
+    });
+    return c.json(out);
+  });
+
   /** Siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas). */
   app.post('/api/google/demo-events', requireAdmin, async (c) => {
     const g = engine.google;
@@ -318,7 +337,12 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const out = await engine.run(async (x) => {
       const link = x.db.google?.[userId];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
-      const token = await accessToken(g, link, x.now.getTime());
+      let token: string;
+      try {
+        token = await accessToken(g, link, x.now.getTime());
+      } catch (err) {
+        throw new DomainError('google_token', (err as Error).message, 502);
+      }
       // [día de semana, inicio, fin, título]: algunas terminan justo sobre las 19:15 a propósito.
       const plan: Array<[number, string, string, string]> = [
         [1, '17:00', '19:00', 'Reunión de avance de obra'],
@@ -338,7 +362,11 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
           const start = zonedToUtc(day.year, day.month, day.day, fh!, fm!);
           const end = zonedToUtc(day.year, day.month, day.day, th!, tm!);
           if (end.getTime() <= x.now.getTime()) continue;
-          await createDemoEvent(token, title, start, end);
+          try {
+            await createDemoEvent(token, title, start, end);
+          } catch (err) {
+            throw new DomainError('google_calendar', (err as Error).message, 502);
+          }
           created += 1;
         }
       }
