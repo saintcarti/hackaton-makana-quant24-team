@@ -26,17 +26,27 @@ export function apiBaseOverride(): string {
   }
 }
 
-/** Fija la API desde el panel del equipo (sin redeploy). Vacío vuelve a la del build. */
-export function setApiBaseOverride(url: string): boolean {
-  const clean = trimSlash(url.trim());
-  if (clean) {
-    try {
-      const u = new URL(clean);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    } catch {
-      return false;
-    }
+/**
+ * Deja la URL base tal como la usa el cliente: sin barras finales ni un "/api" final (el cliente ya lo agrega).
+ * Devuelve '' para vacío y null si no es una URL http(s) válida.
+ */
+export function normalizeApiBase(url: string): string | null {
+  let clean = trimSlash(url.trim());
+  if (!clean) return '';
+  clean = trimSlash(clean.replace(/\/api$/i, ''));
+  try {
+    const u = new URL(clean);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return trimSlash(`${u.origin}${u.pathname}`);
+  } catch {
+    return null;
   }
+}
+
+/** Fija la API sin redeploy (queda en este navegador). Vacío vuelve a la del build. */
+export function setApiBaseOverride(url: string): boolean {
+  const clean = normalizeApiBase(url);
+  if (clean === null) return false;
   try {
     if (clean) localStorage.setItem(BASE_KEY, clean);
     else localStorage.removeItem(BASE_KEY);
@@ -88,7 +98,7 @@ export class ApiError extends Error {
   }
 }
 
-async function req<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function req<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getAdminToken();
@@ -155,4 +165,7 @@ export const api = {
   // Solo viajan inicio y fin de cada evento ocupado, nunca títulos (R2).
   syncBusy: (userId: string, weekOf: string, intervals: BusyInterval[]) =>
     req<unknown>('POST', `/users/${encodeURIComponent(userId)}/busy`, { weekOf, intervals }),
+  // Pedido al backend (frontend/PEDIDOS-BACKEND.md §3): reglas de la sesión que usa el agente al proponer horarios.
+  savePrefs: (userId: string, prefs: unknown) =>
+    req<{ user: User }>('PATCH', `/users/${encodeURIComponent(userId)}/preferences`, prefs),
 };

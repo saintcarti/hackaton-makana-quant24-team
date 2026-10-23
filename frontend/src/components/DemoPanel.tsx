@@ -1,13 +1,7 @@
-import { FormEvent, MouseEvent, useRef, useState } from 'react';
-import {
-  api,
-  apiBaseOverride,
-  defaultApiBase,
-  getAdminToken,
-  setAdminToken,
-  setApiBaseOverride,
-} from '../lib/api';
+import { MouseEvent, useRef, useState } from 'react';
+import { api, getAdminToken, setAdminToken } from '../lib/api';
 import { capitalize, fmtDay, fmtTime } from '../lib/format';
+import ApiUrlForm from './ApiUrlForm';
 
 interface Props {
   userId: string;
@@ -36,7 +30,6 @@ export default function DemoPanel({ userId, targetLabel, now, simulated, onDone,
   const runningRef = useRef(false);
   const [open, setOpen] = useState(true);
   const [token, setToken] = useState(getAdminToken());
-  const [apiDraft, setApiDraft] = useState(apiBaseOverride());
 
   async function guarded(id: string, e: MouseEvent, fn: () => Promise<unknown>, opts?: { resetChat?: boolean }) {
     if (e.detail > 1 || runningRef.current) return;
@@ -116,16 +109,6 @@ export default function DemoPanel({ userId, targetLabel, now, simulated, onDone,
     },
   ];
 
-  function saveApi(e: FormEvent) {
-    e.preventDefault();
-    if (!setApiBaseOverride(apiDraft)) {
-      onError('Esa URL no sirve: usa algo como https://la-cita-api.vercel.app');
-      return;
-    }
-    // Recarga para que todo (chat, semana, usuarias) se lea desde la nueva API.
-    window.location.reload();
-  }
-
   return (
     <section className="panel demo" aria-label="Panel de demo">
       <div className="panel-head">
@@ -188,23 +171,9 @@ export default function DemoPanel({ userId, targetLabel, now, simulated, onDone,
               Volver a la hora real
             </button>
           </div>
-          <form className="demo-tools" onSubmit={saveApi}>
-            <label className="small muted" htmlFor="api-base">
-              URL de la API
-            </label>
-            <input
-              id="api-base"
-              className="wide"
-              value={apiDraft}
-              placeholder={defaultApiBase}
-              onChange={(e) => setApiDraft(e.target.value)}
-              inputMode="url"
-              autoComplete="off"
-            />
-            <button className="btn btn-sm" type="submit">
-              Usar esta API
-            </button>
-            <span style={{ flex: 1 }} />
+          <ApiUrlForm />
+          {/* Fuera de cualquier form: Enter acá no debe enviar ni recargar nada. */}
+          <div className="demo-tools">
             <label className="small muted" htmlFor="admin-token">
               Token admin
             </label>
@@ -218,7 +187,7 @@ export default function DemoPanel({ userId, targetLabel, now, simulated, onDone,
                 setAdminToken(e.target.value);
               }}
             />
-          </form>
+          </div>
         </div>
       )}
     </section>

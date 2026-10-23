@@ -10,11 +10,15 @@ interface Props {
 
 export default function NextUp({ summary, appts, now, synthetic }: Props) {
   const next = summary?.nextAppointment ?? null;
-  // Sin próxima cita, se muestra la de esta semana tal cual (p. ej. «Realizada» tras el «listo»), sin suponer nada.
+  // Sin próxima cita, se muestra la de esta semana tal cual (p. ej. «Realizada» tras el «listo», o «Semana de
+  // descanso», que no tiene hora), sin suponer nada.
   const thisWeek =
     !next && now
       ? appts
-          .filter((a) => a.startsAt && a.weekOf === mondayOf(santiagoParts(new Date(now)).date))
+          .filter(
+            (a) =>
+              (a.startsAt || a.status === 'skipped') && a.weekOf === mondayOf(santiagoParts(new Date(now)).date),
+          )
           .sort((a, b) => (b.startsAt ?? '').localeCompare(a.startsAt ?? ''))[0] ?? null
       : null;
   const shown = next ?? thisWeek;
@@ -34,6 +38,16 @@ export default function NextUp({ summary, appts, now, synthetic }: Props) {
             <p className="small muted" style={{ margin: '0.4rem 0 0', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <span className={`chip${shown.status === 'done' ? '' : ' chip-accent'}`}>{shown.label}</span>
               {shown.durationMin} min · {shown.venue}
+            </p>
+          </>
+        ) : shown ? (
+          <>
+            <p className="display next-time" style={{ color: 'var(--text-2)' }}>
+              —
+            </p>
+            <p className="display next-day">{shown.label}</p>
+            <p className="small muted" style={{ margin: '0.4rem 0 0' }}>
+              El domingo a las 20:00 te escribimos con dos horarios para la semana que viene.
             </p>
           </>
         ) : (

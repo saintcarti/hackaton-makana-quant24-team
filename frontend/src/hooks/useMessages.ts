@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { api, ApiError } from '../lib/api';
 import type { Message } from '../lib/api-types';
 
 const POLL_MS = 1500;
@@ -21,13 +21,17 @@ function reconcile(prev: Message[], server: Message[]): Message[] {
 export function useMessages(userId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
   const currentUser = useRef(userId);
+  // Sube con cada reset o respuesta mostrada: un polling pedido antes trae un log viejo y se descarta.
+  const epoch = useRef(0);
 
   /** Muestra al tiro las respuestas de un POST, solo si son de la usuaria que se está mirando. */
   const merge = useCallback((incoming: Message[]) => {
     const mine = incoming.filter((m) => m.userId === currentUser.current);
     if (!mine.length) return;
+    epoch.current += 1;
     setMessages((prev) => {
       const seen = new Set(prev.map((m) => m.n));
       const fresh = mine.filter((m) => !seen.has(m.n));
@@ -36,36 +40,48 @@ export function useMessages(userId: string | null) {
     });
   }, []);
 
-  const reset = useCallback(() => setMessages([]), []);
+  const reset = useCallback(() => {
+    epoch.current += 1;
+    setMessages([]);
+  }, []);
 
   useEffect(() => {
     currentUser.current = userId;
+    epoch.current += 1;
     setMessages([]);
     setLoaded(false);
     setError(null);
+    setErrorStatus(null);
     if (!userId) return;
     let alive = true;
+    let timer: number | undefined;
 
+    // setTimeout encadenado y no setInterval: nunca hay dos pollings en vuelo, así que no llegan desordenados.
     const load = async () => {
+      const startedAt = epoch.current;
       try {
         const r = await api.messages(userId);
-        if (!alive) return;
+        if (!alive || startedAt !== epoch.current) return;
         const server = r.messages.filter((m) => m.userId === userId).sort((a, b) => a.n - b.n);
         setMessages((prev) => reconcile(prev, server));
         setLoaded(true);
         setError(null);
+        setErrorStatus(null);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : 'Sin conexión');
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : 'Sin conexión');
+        setErrorStatus(e instanceof ApiError ? e.status : 0);
+      } finally {
+        if (alive) timer = window.setTimeout(load, POLL_MS);
       }
     };
 
     load();
-    const t = window.setInterval(load, POLL_MS);
     return () => {
       alive = false;
-      window.clearInterval(t);
+      if (timer) window.clearTimeout(timer);
     };
   }, [userId]);
 
-  return { messages, merge, reset, error, loaded };
+  return { messages, merge, reset, error, errorStatus, loaded };
 }

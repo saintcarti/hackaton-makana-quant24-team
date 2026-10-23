@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ApiUrlForm from './components/ApiUrlForm';
 import Chat, { userLabel } from './components/Chat';
 import DemoPanel from './components/DemoPanel';
 import Login from './components/Login';
 import NextUp from './components/NextUp';
+import SessionSetup from './components/SessionSetup';
 import SixWeeks from './components/SixWeeks';
-import WeekCalendar, { type GoogleState } from './components/WeekCalendar';
+import WeekCalendar, { type GoogleState, type Suggestion } from './components/WeekCalendar';
 import { useMessages } from './hooks/useMessages';
 import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
 import type { AppointmentView, CalendarWeek, Summary, User } from './lib/api-types';
-import { addDaysISO } from './lib/format';
+import { toSegments } from './lib/calendar';
+import { fitWeek, pickSuggestions, type TakenInterval } from './lib/fit';
+import { addDaysISO, santiagoParts } from './lib/format';
 import {
   fetchEvents,
   googleClientId,
@@ -18,12 +22,16 @@ import {
   type CalendarEvent,
   type GoogleSession,
 } from './lib/google';
+import { loadPrefs, savePrefsLocal, type SessionPrefs } from './lib/prefs';
 
 const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) || undefined;
 const SESSION_KEY = 'lacita.session';
 const RETRY_MS = 2500;
+const DATA_RETRY_MS = 3000;
 const USERS_POLL_MS = 10_000;
 const CLOCK_TICK_MS = 30_000;
+const ACTIVE_STATUSES = new Set(['proposed', 'confirmed', 'reminded', 'done']);
+const LOCAL_PREFS_NOTE = 'El agente todavía no usa estas reglas: quedan en este navegador hasta que el backend las reciba.';
 
 function readDemoFlag() {
   try {
@@ -41,6 +49,9 @@ function writeDemoFlag(on: boolean) {
     /* sin almacenamiento: la sesión dura lo que dure la pestaña */
   }
 }
+
+/** Sin conexión de verdad: red caída o el servidor falló. Un 404 (usuaria inexistente) es otra cosa. */
+const isOffline = (status: number | null) => status !== null && (status === 0 || status >= 500);
 
 export default function App() {
   const [entered, setEntered] = useState(readDemoFlag);
@@ -65,9 +76,20 @@ export default function App() {
   const [gState, setGState] = useState<GoogleState>('off');
   const [gNote, setGNote] = useState<string | null>(null);
 
+  const [prefsVersion, setPrefsVersion] = useState(0);
+  const [prefsNote, setPrefsNote] = useState<string | null>(null);
+  const [preparing, setPreparing] = useState(false);
+
   const [view, setView] = useState<'camila' | 'equipo'>('camila');
   const [toast, setToast] = useState<string | null>(null);
-  const { messages, merge, reset: resetChat, error: chatError, loaded: chatLoaded } = useMessages(userId);
+  const {
+    messages,
+    merge,
+    reset: resetChat,
+    error: chatError,
+    errorStatus: chatErrorStatus,
+    loaded: chatLoaded,
+  } = useMessages(userId);
 
   const bump = useCallback(() => setRefreshKey((k) => k + 1), []);
   const showToast = useCallback((msg: string) => {
@@ -118,13 +140,20 @@ export default function App() {
   // Quien le escribe al bot crea una usuaria tg_<chatId>: la lista se refresca sola para que aparezca en el selector.
   useEffect(() => {
     if (!entered || !demoUserId) return;
+    let alive = true;
     const t = window.setInterval(() => {
       api
         .users()
-        .then((l) => syncUsers(l.users, demoUserId))
+        .then((l) => {
+          // Una respuesta que llega después de «Salir» no debe volver a seleccionar a nadie.
+          if (alive) syncUsers(l.users, demoUserId);
+        })
         .catch(() => undefined);
     }, USERS_POLL_MS);
-    return () => window.clearInterval(t);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
   }, [entered, demoUserId, syncUsers]);
 
   // Línea de «ahora» y reloj del panel: avanzan entre recargas con el desfase del backend.
@@ -147,6 +176,7 @@ export default function App() {
   useEffect(() => {
     if (!userId) return;
     let alive = true;
+    let retryTimer: number | undefined;
     (async () => {
       try {
         const [s, a, meta] = await Promise.all([api.summary(userId), api.appointments(userId), api.meta()]);
@@ -159,13 +189,18 @@ export default function App() {
         applyServerClock(meta.now, meta.clockSimulated);
       } catch (e) {
         if (!alive) return;
-        // Una usuaria que el reset borró responde 404: la reconciliación de usuarias la saca; no hace falta avisar.
-        if (e instanceof ApiError && (e.status === 0 || e.status === 404)) return;
+        // Una usuaria que el reset borró responde 404: la reconciliación la saca o el aviso pide prepararla.
+        if (e instanceof ApiError && e.status === 404) return;
+        if (e instanceof ApiError && isOffline(e.status)) {
+          retryTimer = window.setTimeout(() => setRefreshKey((k) => k + 1), DATA_RETRY_MS);
+          return;
+        }
         showToast(e instanceof Error ? e.message : 'No se pudo cargar tu semana.');
       }
     })();
     return () => {
       alive = false;
+      if (retryTimer) window.clearTimeout(retryTimer);
     };
   }, [userId, weekOf, refreshKey, messages.length, showToast, applyServerClock]);
 
@@ -204,6 +239,79 @@ export default function App() {
     };
   }, [google, cal?.weekOf, userId, isDemoUser]);
 
+  const current = users.find((u) => u.id === userId) ?? null;
+
+  // ── Sesión que cabe ──────────────────────────────────────────────────────────
+  // La lista de usuarias se refresca cada 10 s con objetos nuevos: se recalcula solo si cambió el contenido.
+  const currentSignature = current ? JSON.stringify(current) : '';
+  const prefsState = useMemo(
+    () => (isDemoUser && current ? loadPrefs(current) : null),
+    [isDemoUser, currentSignature, prefsVersion],
+  );
+  const segments = useMemo(
+    () => (cal && isDemoUser ? toSegments(events, cal.days) : []),
+    [events, cal, isDemoUser],
+  );
+  const fitEntries = useMemo(() => {
+    if (!cal || !prefsState) return [];
+    const taken: TakenInterval[] = cal.blocks
+      .filter((b) => ACTIVE_STATUSES.has(b.status))
+      .map((b) => ({ dayIndex: b.dayIndex, startMin: b.startMinutes, endMin: b.startMinutes + b.durationMin }));
+    const nowParts = now ? santiagoParts(new Date(now)) : null;
+    const entries = fitWeek({
+      days: cal.days,
+      prefs: prefsState.prefs,
+      busy: segments,
+      taken,
+      now: nowParts,
+      preferredTime: current?.preferredTime,
+    });
+    return pickSuggestions(entries, prefsState.prefs.perWeek);
+  }, [cal, prefsState, segments, now, current?.preferredTime]);
+  const suggestions: Suggestion[] = prefsState
+    ? fitEntries
+        .filter((e) => e.suggested && e.slot)
+        .map((e) => ({
+          key: `s-${e.date}`,
+          dayIndex: e.dayIndex,
+          startMin: e.slot!.startMin,
+          endMin: e.slot!.endMin,
+          label: `Cabe ${prefsState.prefs.sessionMin}'`,
+        }))
+    : [];
+
+  async function savePrefs(p: SessionPrefs) {
+    if (!userId) return;
+    try {
+      const r = await api.savePrefs(userId, p);
+      // El backend devuelve la usuaria con sus reglas: desde ahora es la fuente de verdad.
+      setUsers((list) => list.map((u) => (u.id === r.user.id ? r.user : u)));
+      savePrefsLocal(userId, p);
+      setPrefsNote(null);
+      bump();
+    } catch (e) {
+      const stored = savePrefsLocal(userId, p);
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) setPrefsNote(LOCAL_PREFS_NOTE);
+      else setPrefsNote(stored ? 'No pudimos guardarlas en La Cita; quedaron en este navegador.' : 'No pudimos guardar tus reglas.');
+    }
+    setPrefsVersion((v) => v + 1);
+  }
+
+  async function prepareCamila() {
+    if (preparing) return;
+    setPreparing(true);
+    try {
+      await api.reset();
+      resetChat();
+      setWeekOf(null);
+      bump();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No se pudo preparar a Camila.');
+    } finally {
+      setPreparing(false);
+    }
+  }
+
   async function connectGoogle() {
     const g = await signInWithGoogle();
     setGoogle(g);
@@ -239,6 +347,7 @@ export default function App() {
     setAppts([]);
     setWeekOf(null);
     setView('camila');
+    setPrefsNote(null);
     writeDemoFlag(false);
     setEntered(false);
   }
@@ -247,9 +356,12 @@ export default function App() {
     return <Login onGoogle={connectGoogle} onDemo={enterDemo} telegramBot={TELEGRAM_BOT} />;
   }
 
-  const current = users.find((u) => u.id === userId) ?? null;
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
-  const offline = apiDown || !!chatError;
+  const offline = apiDown || isOffline(chatErrorStatus);
+  const notPrepared = !offline && chatErrorStatus === 404;
+  const isCurrentWeek = weekOf === null || weekOf === summary?.nextAppointment?.weekOf;
+  const weekTitle = !cal ? '' : isCurrentWeek ? 'esta semana' : `semana del ${Number(cal.weekOf.slice(8))}`;
+  const shownNote = prefsNote ?? (prefsState?.source === 'local' ? LOCAL_PREFS_NOTE : null);
 
   return (
     <>
@@ -284,22 +396,51 @@ export default function App() {
 
       {offline && (
         <div className="banner" role="alert">
-          {apiPointsToViewerMachine() ? (
-            <>
-              Esta web busca la API en <code>{getApiBase()}</code>, o sea en este mismo computador, y no responde.
-              Levanta el backend acá o pon la URL publicada en <b>Lo que ve el equipo → URL de la API</b>.
-            </>
-          ) : (
-            <>
-              No hay conexión con la API (<code>{getApiBase()}</code>). Reintentando sola cada pocos segundos.
-            </>
-          )}
+          <p style={{ margin: 0 }}>
+            {apiPointsToViewerMachine() ? (
+              <>
+                Esta web busca la API en <code>{getApiBase()}</code>, o sea en este mismo computador, y no responde.
+                Levanta el backend acá o pega la URL publicada:
+              </>
+            ) : (
+              <>
+                No hay conexión con la API (<code>{getApiBase()}</code>). Reintentando sola; si cambió de lugar, pega
+                la URL nueva:
+              </>
+            )}
+          </p>
+          <ApiUrlForm id="api-base-banner" />
+        </div>
+      )}
+      {notPrepared && (
+        <div className="banner" role="alert">
+          <p style={{ margin: 0 }}>
+            Camila sintética no está cargada en esta API (por ejemplo, porque el backend recién partió).
+          </p>
+          <div className="demo-tools">
+            <button className="btn btn-sm btn-primary" onClick={prepareCamila} disabled={preparing}>
+              {preparing ? 'Preparando…' : 'Preparar a Camila'}
+            </button>
+            <span className="small">Es el mismo paso «0» del panel del equipo.</span>
+          </div>
         </div>
       )}
 
       <div className="layout">
         <div className="main-col">
           {view === 'camila' && <NextUp summary={summary} appts={appts} now={now} synthetic={!!current?.synthetic} />}
+          {view === 'camila' && prefsState && cal && (
+            <SessionSetup
+              key={userId ?? 'none'}
+              prefs={prefsState.prefs}
+              source={prefsState.source}
+              entries={fitEntries}
+              weekTitle={weekTitle}
+              googleOn={gState === 'on'}
+              saveNote={shownNote}
+              onSave={savePrefs}
+            />
+          )}
           {view === 'equipo' && userId && (
             <DemoPanel
               userId={userId}
@@ -317,9 +458,11 @@ export default function App() {
           )}
           <WeekCalendar
             cal={cal}
-            events={isDemoUser ? events : []}
+            segments={isDemoUser ? segments : []}
             now={now}
-            window={current?.window ?? null}
+            window={view === 'camila' && prefsState ? prefsState.prefs.window : current?.window ?? null}
+            gymHours={view === 'camila' && prefsState ? prefsState.prefs.gymHours : null}
+            suggestions={view === 'camila' ? suggestions : []}
             google={isDemoUser ? gState : 'off'}
             googleNote={isDemoUser ? gNote : null}
             canConnect={!!googleClientId && isDemoUser}
@@ -327,7 +470,7 @@ export default function App() {
             onPrev={() => cal && setWeekOf(addDaysISO(cal.weekOf, -7))}
             onNext={() => cal && setWeekOf(addDaysISO(cal.weekOf, 7))}
             onToday={() => setWeekOf(null)}
-            isCurrentWeek={weekOf === null || weekOf === summary?.nextAppointment?.weekOf}
+            isCurrentWeek={isCurrentWeek}
           />
           {view === 'equipo' && <SixWeeks appts={appts} now={now} />}
         </div>

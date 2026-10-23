@@ -28,7 +28,11 @@ Copia `.env.example` a `.env.local` si necesitas cambiar la URL de la API, activ
 | `src/components/WeekCalendar.tsx` | Semana con las citas (backend) y los eventos de Google |
 | `src/components/Chat.tsx` | Simulador / espejo de Telegram: mensajes, botones, `.ics` |
 | `src/components/DemoPanel.tsx` | Guion del demo: reset, domingo 20:00, silencio, lunes 18:30, «hoy no puedo», «listo» |
-| `src/components/NextUp.tsx` | Próxima cita, plata recuperada e historial |
+| `src/components/NextUp.tsx` | Próxima cita (o la de esta semana) y plata recuperada |
+| `src/components/SessionSetup.tsx` | «Sesión que cabe»: horario del gym, duración, veces y días; dónde cabe cada día y por qué |
+| `src/components/SixWeeks.tsx` | Vista del equipo: las seis semanas y el promedio de visitas por semana |
+| `src/lib/fit.ts` | Cálculo puro de dónde cabe la sesión (gym ∩ ventana ∩ Google ∩ duración) |
+| `src/lib/prefs.ts` | Reglas de la sesión: backend > este navegador > valores por defecto |
 | `src/lib/api.ts` | Cliente del contrato HTTP (`src/lib/api-types.ts` es copia de `docs/api-types.ts`) |
 | `src/lib/google.ts` | Google Identity Services + lectura de Calendar (solo lectura, token en memoria) |
 

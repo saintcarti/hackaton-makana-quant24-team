@@ -17,6 +17,7 @@ interface Props {
 }
 
 const msgKey = (m: Message) => `${m.n}:${m.at}`;
+const LOCK_MAX_MS = 4000;
 
 export function userLabel(u: User) {
   if (u.channel.type === 'telegram') return `Telegram · chat …${u.id.replace(/^tg_/, '').slice(-4)}`;
@@ -49,6 +50,14 @@ export default function Chat({
 
   useEffect(() => setAnsweredKey(null), [userId]);
 
+  // El bloqueo es temporal: se suelta cuando llega el eco de la respuesta o cuando ese mensaje ya no está en el log
+  // (tras «Preparar» la nueva captura puede repetir n y casi el mismo `at`, y quedaría bloqueada).
+  useEffect(() => {
+    if (answeredKey && (answeredOnServer || !messages.some((m) => msgKey(m) === answeredKey))) {
+      setAnsweredKey(null);
+    }
+  }, [messages, answeredOnServer, answeredKey]);
+
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
@@ -78,9 +87,11 @@ export default function Chat({
 
   function tap(e: MouseEvent, m: Message, b: Button) {
     if (e.detail > 1 || keyboardLocked || m !== lastWithButtons) return;
-    const previous = answeredKey;
-    setAnsweredKey(msgKey(m));
-    send({ action: b.action, label: b.label }, () => setAnsweredKey(previous));
+    const key = msgKey(m);
+    setAnsweredKey(key);
+    // Tope duro: si un reset externo trae una captura con la misma clave, el bloqueo no puede quedar pegado.
+    window.setTimeout(() => setAnsweredKey((k) => (k === key ? null : k)), LOCK_MAX_MS);
+    send({ action: b.action, label: b.label }, () => setAnsweredKey((k) => (k === key ? null : k)));
   }
 
   const current = users.find((u) => u.id === userId);
