@@ -397,13 +397,45 @@ Small:    sm (0.875rem / 14px) — Helper text, metadata
 
 All spacing follows the baseline scale: 4px, 8px, 12px, 16px, 24px, 32px.
 
+## Motion & Animation Rules
+
+Reference: [emilkowalski/skills — animate, apple-design](https://github.com/emilkowalski/skills)
+
+**Entrance animations:**
+- Use `ease-out` easing (fast start, slow end — feels responsive)
+- Duration: 200–300ms for buttons, 400–500ms for modals
+- Animate: opacity + transform (not color or layout)
+
+**Exit animations:**
+- Use `ease-in` easing (slow start, fast end — feels weighty)
+- Tap feedback: `scale(0.97)` + `duration: 100ms`
+- Modal close: opacity fade + subtle scale out
+
+**What NOT to animate:**
+- Layout shifts (use CSS grid, not JS)
+- Color changes alone (pair with opacity if needed)
+- Unnecessary micro-interactions (every hover doesn't need motion)
+
+**Accessibility:**
+- Respect `prefers-reduced-motion` media query
+- Never use motion for critical info transfer
+- Transitions should feel natural, not jarring
+
 ## Notes
 
-- No border-radius uniformity — use different radii for different components
+- No border-radius uniformity — use different radii for different components (reference: emilkowalski/apple-design)
 - No glassmorphism — clean, solid colors
-- No unnecessary shadows — 1-2 subtle shadows max
+- No unnecessary shadows — 1-2 subtle shadows max (reference: emilkowalski/skills §shadows)
 - Accessibility — all buttons have minimum 44px height, color contrast passes APCA
+- Mobile — use `mobile-native` patterns: avoid zoom on input, handle 100vh bug, sticky hover states
+
+## References
+
+- [emilkowalski/skills](https://github.com/emilkowalski/skills) — Animation & design expertise
+- [vercel-labs/web-design-guidelines](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines) — Web design best practices
+- [apple-design](https://github.com/emilkowalski/skills/tree/main/skills/apple-design) — Apple's fluid motion principles
+- [playwright-cli](https://github.com/microsoft/playwright-cli) — Testing animations in CI
 
 ## Next Step
 
-Components are ready; use them in the Calendar, Modal, and other views.
+Components are ready; use them in the Calendar, Modal, and other views. When adding animations, trigger the `animate` skill.

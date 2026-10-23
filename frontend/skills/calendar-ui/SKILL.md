@@ -299,8 +299,17 @@ export default function SlotPicker({
 - **No guilt colors** — avoid red; use neutral grays and warm ambers for "moved" status
 - **Neutral language** — "Movida" (moved) not "Cancelada" (cancelled) or "Fallida" (failed)
 - **Clear typography** — time is prominent; status is secondary
-- **Touch-friendly buttons** — minimum 44px height for mobile
+- **Touch-friendly buttons** — minimum 44px height for mobile (reference: emilkowalski/apple-design)
+- **Animations** — use `ease-out` for card entrance (300ms), `ease-in` for exit (reference: emilkowalski/skills — animate)
+
+## References
+
+- [emilkowalski/skills — animate](https://github.com/emilkowalski/skills/tree/main/skills/animate) — Motion & easing curves
+- [emilkowalski/skills — apple-design](https://github.com/emilkowalski/skills/tree/main/skills/apple-design) — Fluid motion principles
+- [vercel-labs/web-design-guidelines](https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines)
+- [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli) — Test animations
 
 ## Next Step
 
-Trigger `backend-client` to connect with Saintcarti's backend for Telegram integration.
+Trigger `animate` skill to add smooth entrance animations for appointment cards and modals.
+Then, trigger `backend-client` to connect with Saintcarti's backend for Telegram integration.
