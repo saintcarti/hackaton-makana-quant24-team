@@ -84,13 +84,17 @@ export function clearSplitState(userId: string) {
 }
 
 /**
- * R4: la derivación del agente (backend/src/tone.ts, «…con un kinesiólogo o un médico deportólogo…») marca que Camila
- * mencionó dolor. Devuelve la hora de la última, o null. Mientras no diga que ya lo conversó, el plan no asigna focos.
+ * R4, para backends que todavía no exponen `user.painPause`: la derivación del agente (backend/src/tone.ts, «Eso
+ * conviene revisarlo con un kinesiólogo…» / «no te voy a indicar ejercicios para el dolor») marca que Camila mencionó
+ * dolor, y «Retomamos:» que ya lo conversó. Ojo: el mensaje de la rutina también nombra al kinesiólogo, así que no
+ * alcanza con buscar esa palabra. Devuelve la hora de la derivación vigente, o null.
  */
 export function painSince(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.dir === 'out' && /kinesi[oó]log|deport[oó]log/i.test(m.text)) return m.at;
+    if (m.dir !== 'out') continue;
+    if (/\bRetomamos:/.test(m.text)) return null;
+    if (/no te voy a indicar ejercicios para el dolor|conviene revisarlo con un kinesi/i.test(m.text)) return m.at;
   }
   return null;
 }

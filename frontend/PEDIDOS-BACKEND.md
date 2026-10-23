@@ -77,7 +77,7 @@ Con eso alcanza para empezar; días y veces por semana se ajustan después desde
 | Pecho-espalda / Piernas / Brazos | 3 | pecho, espalda y core · piernas y glúteos · brazos y hombros |
 | Un grupo por día | 5 | pecho · espalda · piernas y glúteos · hombros y core · brazos |
 
-La web reparte el foco de cada sesión en los días donde cabe según su calendario, cubre los 8 grupos al menos una vez por semana y deja al menos un día de descanso entre dos sesiones que trabajan el mismo grupo (también entre el domingo y el lunes siguiente: por eso PPL ×3 cae lun/mié/vie y no lun/jue/dom). Hoy lo calcula sola, con `planSplit` en `frontend/src/lib/splits.ts` (función pura, 86 tests en verde), y avisa en pantalla que el agente todavía no lo usa.
+La web reparte el foco de cada sesión en los días donde cabe según su calendario, cubre los 8 grupos al menos una vez por semana y deja al menos un día de descanso entre dos sesiones que trabajan el mismo grupo (también entre el domingo y el lunes siguiente: por eso PPL ×3 cae lun/mié/vie y no lun/jue/dom). Hoy lo calcula sola, con `planSplit` en `frontend/src/lib/splits.ts` (función pura, 86 tests en verde en `frontend/scripts/splits-test.ts`), y avisa en pantalla que el agente todavía no lo usa.
 
 **Propuesta de contrato.** Hoy `PATCH /preferences` rechaza campos desconocidos (`.strict()` en `backend/src/app.ts`) y `perWeek` mayor que 3, así que la web le manda las reglas sin el split y con `perWeek` acotado a 3; el split queda en el navegador. Para que el agente lo use:
 
@@ -106,3 +106,20 @@ Benjamín renombró la app a **gogym** (23-oct). La web ya dice gogym. Para que 
 - `backend/src/ics.ts:15`: `PRODID:-//La Cita//…` → `-//gogym//…`.
 - Nombre visible del bot en BotFather.
 - El Worker (`la-cita-api`) y la URL de Vercel (`la-cita-nine`) pueden quedar como están: cambiarlos antes del pitch obliga a reconfigurar `VITE_API_URL` y los enlaces ya compartidos.
+
+## 6. El agente elige el split y la duración con el calendario
+
+**Decisión de Benjamín (23-oct).** Camila dice solo cuántas veces por semana quiere ir (1, 2 o 3: su compromiso). El agente mira la semana y elige el split, la duración y los días para que los 8 grupos entren al menos una vez. Es el modo por defecto de la web («El agente, con mi calendario»); el modo manual de §4 sigue disponible en la hoja de edición.
+
+**Regla** (`frontend/src/lib/autoplan.ts`, `autoDecide`; puro, determinista y con 34 tests en `frontend/scripts/autoplan-test.ts`; se corren con `pnpm test:planes` en `frontend/`):
+- Se prueba primero la cantidad que pidió: 3 → Push/Pull/Legs de 40 y, si los huecos son cortos, de 30; 2 → Upper/Lower de 50, 40 o 30; 1 → Full body de 60, 50 o 40 (los 8 grupos no caben en menos).
+- Si con esa cantidad no se cubren los 8 grupos, baja a menos sesiones con un split que igual los cubra y lo dice («Querías ir 3 veces, pero esta semana caben 2 sesiones…»). Si nada los cubre, devuelve el plan que más cubre.
+- Entrada: por cada día de la semana, si hay cita real y la duración estándar más larga que cabe en su hueco (`DayRoom.maxMin` ∈ 0/30/40/50/60), más los focos ya decididos.
+- Resguardos (salieron de una verificación adversarial con barridos de miles de semanas): una cita real ya agendada no recibe más minutos que su hueco; con focos ya hechos solo se consideran splits que los contengan; si hay más citas reales que las veces pedidas, el split alcanza para todas sin choques de descanso.
+- Si la semana ya empezó (una cita real de esa semana ya llegó a su hora), no se vuelve a decidir: se mantiene el split que tiene el backend, para no re-etiquetar sesiones hechas.
+
+**Hoy (sin cambios en el backend):** la web decide para la semana que muestra por defecto y manda `PATCH /preferences { split, sessionMin }` cuando la decisión cambia. Desde ahí el backend ya usa esa duración para la cita, el mensaje del domingo y la rutina, y planifica el foco con ese split. Solo se manda una decisión con al menos una sesión, así una semana vacía (domingo en la noche) no pisa el split.
+
+**Pedido:** portar `autoplan.ts` tal cual a `backend/src/` y llamarlo en la captura dominical (y al mover una cita a otra semana), armando `DayRoom` con `availableMinutes` para la semana objetivo. Así el agente decide aunque la web esté cerrada, y el mensaje del domingo ya nace con el split y la duración de esa semana. Sin el puerto, el domingo el agente propone con lo que dejó la web la última vez, y la web corrige al abrirse (la cita se re-enfoca y la rutina se recalcula, pero el texto del domingo ya salió con la duración anterior).
+
+**R4 en la web:** la pausa sale de `user.painPause`. El botón «Ya lo conversé con un profesional» le escribe eso mismo al agente, que limpia la pausa y responde «Retomamos: …». Ojo: el mensaje de la rutina (`tone.ts:53`) también nombra al kinesiólogo; la web ya no usa esa palabra para detectar dolor, solo la frase de la derivación.
