@@ -587,7 +587,7 @@ export class Engine {
 
   // ───────────────────────── M4: MUEVE ─────────────────────────
 
-  move(c: Ctx, userId: string, apptId?: string) {
+  move(c: Ctx, userId: string, apptId?: string, opts: { afterToday?: boolean } = {}) {
     const user = this.user(c, userId);
     const appt = apptId ? this.appt(c, apptId) : this.upcoming(c, userId);
     if (!appt?.startsAt) {
@@ -613,7 +613,13 @@ export class Engine {
       }
     }
 
-    const from = new Date(Math.max(c.now.getTime(), current.getTime()));
+    let from = new Date(Math.max(c.now.getTime(), current.getTime()));
+    if (opts.afterToday) {
+      // "Hoy no puedo": el nuevo horario no puede ser hoy.
+      const t = localParts(c.now);
+      const tomorrow = addDays(t, 1);
+      from = new Date(Math.max(from.getTime(), zonedToUtc(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0).getTime()));
+    }
     let [next] = nextSlots(user, from, 1, this.taken(c, userId, appt.id), this.busyFor(c, userId));
     if (next && mondayOf(next) !== appt.weekOf) {
       this.autoPlanWeek(c, user, mondayOf(next));
@@ -789,7 +795,11 @@ export class Engine {
     const waitingHour = p?.kind === 'other_hour';
     const target = p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
     if (placeable && target && (!asksQuestion || waitingHour)) {
-      let when = parseWhen(text, c.now, user, { requireExplicit: intent === 'move' && !waitingHour });
+      const lower = text.toLowerCase();
+      // "No puedo a las 19:15": la hora mencionada es la que no sirve, salvo que proponga otra ("mejor el miércoles").
+      const cantGo = intent === 'move' && !waitingHour && /\bno (pueda|puedo|podr[eé]|alcanzo|voy)\b/.test(lower);
+      const proposesOther = /\b(mejor|prefiero|podr[ií]a|pasa(la|lo|r)?|c[aá]mbial[ao]|mu[eé]vel[ao])\b|\bpara (el|las?)\b/.test(lower);
+      let when = cantGo && !proposesOther ? null : parseWhen(text, c.now, user, { requireExplicit: intent === 'move' && !waitingHour });
       if (!when && this.deps.parser?.extractWhen && (waitingHour || intent === 'move' || intent === 'unknown') && /\d|ma[ñn]ana|hoy|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|noche|tarde|despu[eé]s/i.test(text)) {
         when = await this.guessWhen(c, user, text);
       }
@@ -799,6 +809,10 @@ export class Engine {
       }
       if (waitingHour && intent !== 'move') {
         this.emit(c, user.id, { text: T.otherHourUnclear() });
+        return;
+      }
+      if (intent === 'move' && /\bhoy\b/.test(lower)) {
+        this.move(c, user.id, undefined, { afterToday: true });
         return;
       }
     }

@@ -52,7 +52,7 @@ export const T = {
       ...r.items.map((i) => `• ${i.name}: ${i.sets} × ${i.reps}`),
       'Descansa cerca de 1 min entre series y elige un peso con el que mantengas buena técnica. Si algo te molesta, para y consúltalo con un kinesiólogo o un médico deportólogo.',
     ].join('\n'),
-  focusOnly: (focus: string) => `Ese día toca ${focus}. Cuando tenga el hueco real de tu calendario te armo la rutina.`,
+  focusOnly: (focus: string) => `Ese día toca ${focus}. Todavía no tengo una rutina armada para ese día.`,
   noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
   moved: (label: string) => `Hecho, la moví al ${label}. Mover no es fallar.`,

@@ -76,6 +76,16 @@ describe('conversación (la de Telegram que falló)', () => {
     expect((await appts()).at(-1).startsAt).toBe('2026-10-23T23:00:00.000Z');
   });
 
+  it('"no pueda ir hoy a las 19:15, reagéndamelo" no vuelve a poner las 19:15 de hoy', async () => {
+    const { call, appts, say } = await setup(FRI_1727);
+    const cap = await call(`${u}/weekly-capture`);
+    await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action }); // viernes 23 19:15
+    expect((await appts()).at(-1).startsAt).toBe('2026-10-23T22:15:00.000Z');
+    const r = await say('Es muy probable que no pueda ir al gym hoy viernes a las 19:15, se me alargo la reunion con el cliente reagendamelo');
+    expect(r[0].text).toMatch(/Mover no es fallar/);
+    expect((await appts()).at(-1).startsAt?.slice(0, 10)).not.toBe('2026-10-23');
+  });
+
   it('una pregunta por los músculos no mueve la cita y responde la rutina', async () => {
     const { call, appts, say } = await setup(FRI_1727);
     await call(`${u}/preferences`, { split: { id: 'ppl', sessions: 3 } }, 'PATCH');
