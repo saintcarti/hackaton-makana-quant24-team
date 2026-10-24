@@ -244,4 +244,14 @@ describe('un solo evento por cita y corrimiento automático', () => {
     await engine.run((c) => engine.tick(c));
     expect((await engine.read((c) => c.db.appointments[appt.id]!)).startsAt).toBe(stored.startsAt);
   });
+
+  it('si elige otra cita para la misma semana, la anterior se reemplaza y se borra su evento (sin duplicar)', async () => {
+    const { engine, calls } = await booked([]);
+    const second = await engine.run((c) => engine.startCapture(c, 'u1'));
+    await engine.run((c) => engine.chooseSlot(c, 'u1', second.id, second.options[1]!)); // otro día, misma semana
+    const live = await engine.read((c) => Object.values(c.db.appointments).filter((a) => a.status === 'confirmed'));
+    expect(live).toHaveLength(1);
+    expect(live[0]!.id).toBe(second.id);
+    expect(calls.filter((x) => x.method === 'DELETE').length).toBeGreaterThanOrEqual(1);
+  });
 });

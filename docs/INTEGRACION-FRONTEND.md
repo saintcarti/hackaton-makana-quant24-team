@@ -224,7 +224,7 @@ Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendar
 | POST | `/google/demo-events` (admin) | `{ userId }`: siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas) |
 | POST | `/google/demo-events/clear` (admin) | `{ userId }`: borra esos eventos de demo |
 | POST | `/google/demo-meeting` (admin) | `{ userId, start, end, title? }` (ISO con zona): agrega una reunión al calendario conectado para el demo («se alargó la reunión»). Después `POST /jobs/tick` hace que el agente corra la cita al siguiente hueco |
-| POST | `/google/appointments/clear` (admin) | `{ userId }`: borra solo las citas que creó el agente en el calendario (deja las reuniones de demo). Úsalo junto con `/demo/reset` para dejar a Camila limpia |
+| POST | `/google/appointments/clear` (admin) | `{ userId, keepLinked? }`: borra solo las citas que creó el agente en el calendario (deja las reuniones de demo); con `keepLinked: true` borra solo los huérfanos y respeta los eventos de las citas vigentes. Úsalo junto con `/demo/reset` para dejar a Camila limpia |
 
 Tras conectar, el backend manda un mensaje al chat («Listo, quedó conectado tu Google Calendar…»), que aparece en el siguiente polling. El token de Google nunca sale del backend. La conexión funciona solo para usuarias de prueba autorizadas en el proyecto de Google (modo «En pruebas»).
 
