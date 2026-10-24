@@ -51,7 +51,7 @@ export type PendingState =
   | { kind: 'capture'; apptId: string; sentAt: string }
   | { kind: 'other_hour'; apptId: string }
   | { kind: 'renegotiate'; apptId: string }
-  | { kind: 'onboarding'; step: 'perWeek' | 'calendar' };
+  | { kind: 'onboarding'; step: 'name' | 'perWeek' | 'calendar' };
 
 /**
  * proposed: semana propuesta, aún sin hora elegida.

@@ -726,6 +726,8 @@ export default function App() {
     return <Login onGoogle={connectGoogle} onDemo={enterDemo} onCode={enterWithCode} telegramBot={TELEGRAM_BOT} />;
   }
 
+  // Una persona real ve su propio nombre; la demo sigue siendo «Camila».
+  const viewerName = current && getSession()?.userId === current.id ? current.name : null;
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram' || u.channel.type === 'web');
   const offline = apiDown || isOffline(chatErrorStatus);
   const notPrepared = !offline && chatErrorStatus === 404 && isDemoUser;
@@ -739,8 +741,8 @@ export default function App() {
         <span className="brand"><img className="brand-logo" src="/logo.png" alt="gogym" height="26" /></span>
         <div className="seg" role="group" aria-label="Vista">
           <button aria-pressed={view === 'camila'} onClick={() => setView('camila')}>
-            <span className="hide-sm">Lo que ve Camila</span>
-            <span className="show-sm">Camila</span>
+            <span className="hide-sm">{viewerName ? `Lo que ve ${viewerName}` : 'Lo que ve Camila'}</span>
+            <span className="show-sm">{viewerName ?? 'Camila'}</span>
           </button>
           <button aria-pressed={view === 'equipo'} onClick={() => setView('equipo')}>
             <span className="hide-sm">Lo que ve el equipo</span>

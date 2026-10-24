@@ -5,7 +5,7 @@ El producto ya no es solo para Camila: cada persona tiene su propia cuenta, su p
 ## Cómo entra alguien
 
 1. Escribe `/start TU-CÓDIGO` al bot de Telegram (el código de invitación lo define `INVITE_CODE`; sin él, el bot responde «beta cerrada» y no guarda nada).
-2. El bot le da la bienvenida, le dice qué guarda y le pregunta **cuántas veces por semana** quiere ir.
+2. El bot le da la bienvenida, le dice qué guarda, le pregunta **cómo quiere que la llame** (un nombre o apodo: no guardamos el nombre de Telegram, lo elige ella) y **cuántas veces por semana** quiere ir.
 3. Le ofrece **conectar su Google Calendar** (OAuth; solo lee horas ocupadas y crea sus citas). Se puede saltar con «Más tarde».
 4. Desde ahí el agente trabaja con **su** día: busca huecos antes del trabajo, al almuerzo o después, arma la rutina con el tiempo real, corre la cita sola si una reunión se alarga y, si pasan dos citas sin hacerse, le escribe una vez para retomar «suave».
 
@@ -18,6 +18,7 @@ La pantalla de entrada tiene **Crear cuenta / Ya tengo cuenta**: alias + contras
 | Comando | Qué hace |
 |---|---|
 | `/start CÓDIGO` | Entra (beta cerrada) y empieza la bienvenida |
+| `/nombre Ana` | Cambia cómo la llama el agente |
 | `/web` | Da un código de 6 dígitos (10 min, un solo uso) para entrar a la web con **su** cuenta |
 | `/privacidad` | Dice qué guarda |
 | `/borrar` | Borra todo (citas, chat, permiso del calendario —se revoca en Google— y sus eventos en el calendario) |

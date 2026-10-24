@@ -380,11 +380,31 @@ export class Engine {
 
   // ───────────────────────── bienvenida, acceso web y datos ─────────────────────────
 
+  /** Nombre o apodo elegido por ella: solo letras, números y espacios, 1 a 24 caracteres. Null si no sirve. */
+  static cleanName(raw: string): string | null {
+    const t = raw.replace(/[^\p{L}\p{N} ._'-]/gu, '').replace(/\s+/g, ' ').trim();
+    if (t.length < 1 || t.length > 24 || !/[\p{L}]/u.test(t)) return null;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  setName(c: Ctx, userId: string, raw: string): string | null {
+    const name = Engine.cleanName(raw);
+    if (!name) return null;
+    this.user(c, userId).name = name;
+    return name;
+  }
+
   /** Primer contacto de una usuaria nueva: bienvenida, cuántas veces por semana y, si hay Google, conectar calendario. */
-  startOnboarding(c: Ctx, userId: string) {
+  startOnboarding(c: Ctx, userId: string, opts: { askName?: boolean } = {}) {
     const user = this.user(c, userId);
-    user.pending = { kind: 'onboarding', step: 'perWeek' };
     this.emit(c, userId, { text: T.welcome() });
+    if (opts.askName) {
+      // Telegram no nos da (ni guardamos) su nombre: se lo preguntamos, y ella decide cómo llamarse.
+      user.pending = { kind: 'onboarding', step: 'name' };
+      this.emit(c, userId, { text: T.askName() });
+      return;
+    }
+    user.pending = { kind: 'onboarding', step: 'perWeek' };
     this.emit(c, userId, {
       text: T.askPerWeek(),
       buttons: [1, 2, 3].map((n) => ({ label: T.btn.perWeek(n), action: `pw:${n}` })),
@@ -491,7 +511,7 @@ export class Engine {
     if (c.db.users[id]) return c.db.users[id]!;
     const user: User = {
       id,
-      name: input.name ?? 'Camila',
+      name: input.name ?? 'Tú',
       gym: input.gym ?? 'Gym Ñuñoa (demo)',
       monthlyFee: input.monthlyFee ?? 34900,
       plannedVisitsPerMonth: 3,
@@ -1091,6 +1111,17 @@ export class Engine {
       return;
     }
 
+    if (user.pending?.kind === 'onboarding' && user.pending.step === 'name') {
+      const name = this.setName(c, user.id, text);
+      if (!name) {
+        this.emit(c, user.id, { text: T.nameInvalid() });
+        return;
+      }
+      user.pending = { kind: 'onboarding', step: 'perWeek' };
+      this.emit(c, user.id, { text: T.nameSaved(name) });
+      this.emit(c, user.id, { text: T.askPerWeek(), buttons: [1, 2, 3].map((n) => ({ label: T.btn.perWeek(n), action: `pw:${n}` })) });
+      return;
+    }
     if (user.pending?.kind === 'onboarding') {
       // Contesta con un número o vuelve a mostrar la pregunta.
       const n = /\b([123])\b/.exec(text)?.[1];

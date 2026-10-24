@@ -652,11 +652,17 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
         }
         user = engine.createUser(x, {
           id: `tg_${Math.abs(inbound.chatId)}`,
-          name: 'Camila',
+          name: 'Tú',
           channel: { type: 'telegram', chatId: inbound.chatId },
           synthetic: true,
         });
-        engine.startOnboarding(x, user.id);
+        engine.startOnboarding(x, user.id, { askName: true });
+        return;
+      }
+      const rename = /^\/nombre(?:@\w+)?\s+(.+)/i.exec(text);
+      if (/^\/nombre\b/i.test(text)) {
+        const name = rename ? engine.setName(x, user.id, rename[1]!) : null;
+        await tg?.sendText(inbound.chatId, name ? T.nameChanged(name) : T.nameInvalid()).catch(() => undefined);
         return;
       }
       if (/^\/web\b/i.test(text)) {
@@ -681,7 +687,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
         return;
       }
       if (/^\/start\b/i.test(text) && !user.onboarded && !user.pending) {
-        engine.startOnboarding(x, user.id);
+        engine.startOnboarding(x, user.id, { askName: user.name === 'Tú' || user.name === 'Camila' });
         return;
       }
       const isStart = /^\/start\b/i.test(text);
