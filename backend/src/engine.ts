@@ -6,7 +6,7 @@ import { autoDecide, type DayRoom } from './autoplan.js';
 import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
 import { buildBreak, buildRoutine, buildTravelWarmup } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
-import { Busy, PREFERRED_DAYS, availableMinutes, dayPart, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, slotButtonLabel, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
@@ -397,7 +397,7 @@ export class Engine {
     user.pending = { kind: 'capture', apptId: appt.id, sentAt: c.now.toISOString() };
 
     const buttons: Button[] = [
-      ...options.map((d) => ({ label: flexLabels ? `${formatSlot(d)} (${dayPart(d).label})` : formatSlot(d), action: `slot:${appt.id}:${d.toISOString()}` })),
+      ...options.map((d) => ({ label: flexLabels ? slotButtonLabel(d) : formatSlot(d), action: `slot:${appt.id}:${d.toISOString()}` })),
       { label: T.btn.otherHour, action: 'other_hour' },
       { label: T.btn.skipWeek, action: 'skip_week' },
     ];
