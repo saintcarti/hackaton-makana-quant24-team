@@ -132,3 +132,30 @@ describe('recomendar hora con lo que ella cuenta (reunión que se alarga + traye
     expect(r[0].text).not.toMatch(/Tu reunión|veo en tu calendario/);
   });
 });
+
+describe('preguntas por lo que hay en el calendario', () => {
+  const asks = [
+    'Cuales son las actividades que tengo en la semana?',
+    '¿qué reuniones tengo mañana?',
+    'que tengo el jueves?',
+    'muéstrame mi agenda',
+    'cuál es mi agenda de hoy',
+  ];
+  it('se reconocen sin confundirse con otras cosas', async () => {
+    const { classifyByRules } = await import('../src/intent.js');
+    for (const q of asks) expect(classifyByRules(q), q).toBe('schedule');
+    expect(classifyByRules('que ejercicios hago hoy?')).not.toBe('schedule');
+    expect(classifyByRules('quiero que quede agendada la cita el martes a las 20:30')).not.toBe('schedule');
+    expect(classifyByRules('mueve')).toBe('move');
+  });
+
+  it('responde con el calendario y no agenda ni mueve nada', async () => {
+    const { call, say } = await setup('2026-10-23T20:27:00.000Z');
+    const cap = await call(`${u}/weekly-capture`);
+    await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action });
+    const before = (await call(`${u}/appointments`, {}, 'GET')).appointments.at(-1).startsAt;
+    const r = await say('Cuales son las actividades que tengo en la semana?');
+    expect(r[0].text).toMatch(/Tu cita contigo|No veo nada agendado/);
+    expect((await call(`${u}/appointments`, {}, 'GET')).appointments.at(-1).startsAt).toBe(before);
+  });
+});

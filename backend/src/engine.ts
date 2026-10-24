@@ -1195,6 +1195,9 @@ export class Engine {
       case 'advise':
         await this.advise(c, user, text);
         return;
+      case 'schedule':
+        this.emit(c, user.id, { text: await this.scheduleText(c, user) });
+        return;
       case 'warmup': {
         const next = this.upcoming(c, user.id);
         this.emit(c, user.id, { text: this.travelWarmupText(c, user, next) });

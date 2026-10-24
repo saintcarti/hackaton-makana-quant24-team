@@ -130,7 +130,9 @@ export const T = {
   pain: () =>
     'Eso conviene revisarlo con un kinesiólogo o un médico deportólogo antes de entrenar. Yo no te voy a indicar ejercicios para el dolor. Cuando lo converses con un profesional y quieras retomar, aquí está tu cita.',
   noAppointment: () => 'Todavía no tienes una cita agendada esta semana. ¿Te propongo horarios?',
-  fallback: () => 'Te ayudo con una sola cosa: tu cita. Puedes decirme "mueve", "listo" o una hora, por ejemplo "miércoles 20:00".',
+  fallback: () =>
+    'Puedo agendar y mover tu cita, contarte qué tienes en tu calendario, recomendarte una hora o armar tu rutina. Prueba con "qué tengo esta semana", "mueve" o una hora, por ejemplo "miércoles 20:00".',
+  nameUsage: () => 'Escribe /nombre y cómo quieres que te llame. Por ejemplo: /nombre Xavi.',
   start: () => 'Hola. Soy gogym: te ayudo a dejar agendada tu hora de entrenar y a moverla cuando la pega se alarga.',
   connect: () => 'Conecta tu Google Calendar y dejo la cita directo en tu calendario, la muevo cuando me avises y busco horarios que no choquen con tus reuniones.',
   calendarConnected: () => 'Listo, quedó conectado tu Google Calendar. Desde ahora agendo y muevo tus citas ahí, y propongo horas que no choquen con tus reuniones.',

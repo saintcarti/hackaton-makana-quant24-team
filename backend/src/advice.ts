@@ -24,6 +24,13 @@ export interface MentionedMeeting {
 export const ADVISE =
   /\b(qu[eé] horas?|a qu[eé] hora|cu[aá]ndo|qu[eé] d[ií]a)\b[^?]*\b(recomiend\w*|conviene|sugier\w*|mejor)\b|\bqu[eé]\b[^?.]*\b(agendad[oa]s?|calendario)\b|\b(cu[aá]l(es)?)\b[^?.]*\bcalendario\b|\bqu[eé] tengo (agendado|en mi calendario|esta semana)\b/;
 
+/**
+ * «¿Cuáles son las actividades que tengo en la semana?», «¿qué reuniones tengo mañana?», «mi agenda de hoy»:
+ * quiere ver su calendario, sin pedir una hora.
+ */
+export const SCHEDULE_Q =
+  /(?:^|[\s¿¡])(qu[eé]|cu[aá]l(?:es)?|cu[aá]ntas?)(?=\s)[^?]*\b(actividades|reuniones?|eventos?|compromisos|cosas|citas|pendientes|tengo|tenemos|hay)\b[^?]*\b(semana|hoy|ma[ñn]ana|agenda|calendario|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\b(mi|la) agenda\b|\bmuestra(me)?\b[^?]*\b(calendario|agenda|semana)\b|\bver\b[^?]*\b(mi )?(calendario|agenda)\b/;
+
 /** Pregunta qué hay en su calendario (además de, o en vez de, pedir una hora). */
 export const ASKS_SCHEDULE = /\b(agendad[oa]s?|calendario|qu[eé] tengo)\b/;
 
