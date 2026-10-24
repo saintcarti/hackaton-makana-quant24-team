@@ -6,7 +6,7 @@ import { autoDecide, type DayRoom } from './autoplan.js';
 import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
 import { buildBreak, buildRoutine, buildTravelWarmup } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
-import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { Busy, PREFERRED_DAYS, availableMinutes, dayPart, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
@@ -247,13 +247,14 @@ export class Engine {
   }
 
   /** Reglas de la sesión (merge). Las reglas nuevas aplican a las próximas propuestas, no a citas ya agendadas. */
-  setPreferences(c: Ctx, userId: string, prefs: Partial<Pick<User, 'gymHours' | 'sessionMin' | 'perWeek' | 'days' | 'autoPlan'>> & { window?: User['window'] }): User {
+  setPreferences(c: Ctx, userId: string, prefs: Partial<Pick<User, 'gymHours' | 'sessionMin' | 'perWeek' | 'days' | 'autoPlan' | 'flexTimes'>> & { window?: User['window'] }): User {
     const user = this.user(c, userId);
     if (prefs.window) user.window = prefs.window;
     if (prefs.gymHours) user.gymHours = prefs.gymHours;
     if (prefs.sessionMin !== undefined) user.sessionMin = prefs.sessionMin;
     if (prefs.perWeek !== undefined) user.perWeek = prefs.perWeek;
     if (prefs.autoPlan !== undefined) user.autoPlan = prefs.autoPlan;
+    if (prefs.flexTimes !== undefined) user.flexTimes = prefs.flexTimes;
     if (prefs.days) user.days = [...new Set(prefs.days)].sort();
     // La hora preferida tiene que seguir cayendo dentro de la ventana.
     const [ps, pe] = [user.window.start, user.window.end];
@@ -349,6 +350,8 @@ export class Engine {
       monthlyFee: input.monthlyFee ?? 34900,
       plannedVisitsPerMonth: 3,
       window: { start: '19:00', end: '21:00' },
+      flexTimes: true,
+      gymHours: { open: '05:30', close: '23:00' },
       preferredTime: input.preferredTime ?? '19:15',
       channel: input.channel ?? { type: 'sim' },
       synthetic: input.synthetic ?? true,
@@ -375,6 +378,7 @@ export class Engine {
     this.autoPlanWeek(c, user, targetMonday);
     const options = nextSlots(user, c.now, 2, this.taken(c, userId), busy);
     if (options.length === 0) throw new DomainError('no_slots', 'No hay horarios disponibles', 409);
+    const flexLabels = !!user.flexTimes && busy.length > 0;
     const appt: Appointment = {
       id: shortId('a'),
       userId,
@@ -393,14 +397,15 @@ export class Engine {
     user.pending = { kind: 'capture', apptId: appt.id, sentAt: c.now.toISOString() };
 
     const buttons: Button[] = [
-      ...options.map((d) => ({ label: formatSlot(d), action: `slot:${appt.id}:${d.toISOString()}` })),
+      ...options.map((d) => ({ label: flexLabels ? `${formatSlot(d)} (${dayPart(d).label})` : formatSlot(d), action: `slot:${appt.id}:${d.toISOString()}` })),
       { label: T.btn.otherHour, action: 'other_hour' },
       { label: T.btn.skipWeek, action: 'skip_week' },
     ];
     const connect = this.connectButton(c, user);
     if (connect) buttons.push(connect);
     this.event(c, userId, 'capture_sent', appt.id);
-    this.emit(c, userId, { text: opts.describe ? opts.describe(options) : T.capture(user.name, user.sessionMin ?? 40), buttons });
+    const text = opts.describe ? opts.describe(options) : flexLabels ? T.captureFlex(user.name, user.sessionMin ?? 40) : T.capture(user.name, user.sessionMin ?? 40);
+    this.emit(c, userId, { text, buttons });
     return appt;
   }
 

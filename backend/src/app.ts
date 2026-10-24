@@ -158,6 +158,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       sessionMin: z.union([z.literal(30), z.literal(40), z.literal(50), z.literal(60)]).optional(),
       perWeek: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
       autoPlan: z.boolean().optional(),
+      flexTimes: z.boolean().optional(),
       days: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
       split: z.object({ id: z.enum(['fullbody', 'upper-lower', 'ppl', 'torso-piernas-brazos', 'cinco-dias']), sessions: z.number().int() }).optional(),
     })
@@ -407,13 +408,29 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       } catch (err) {
         throw new DomainError('google_token', (err as Error).message, 502);
       }
-      // [día de semana, inicio, fin, título]: algunas terminan justo sobre las 19:15 a propósito.
+      // [día de semana, inicio, fin, título]: oficina de 08:00 a 19:00 con ~2 h de almuerzo (hay huecos antes, al almuerzo y después).
       const plan: Array<[number, string, string, string]> = [
-        [1, '17:00', '19:00', 'Reunión de avance de obra'],
-        [2, '15:00', '17:30', 'Revisión de presupuestos'],
-        [3, '18:30', '19:30', 'Revisión con arquitectos'],
-        [4, '17:00', '19:30', 'Cierre de hormigonado'],
-        [5, '17:30', '18:30', 'Cierre semanal del proyecto'],
+        [1, '08:00', '09:30', 'Planificación de la semana'],
+        [1, '09:45', '12:00', 'Reunión de avance de obra'],
+        [1, '12:15', '12:45', 'Llamada con proveedores'],
+        [1, '14:45', '16:30', 'Revisión de presupuestos'],
+        [1, '16:45', '19:00', 'Visita a terreno con el cliente'],
+        [2, '08:30', '10:30', 'Comité de proyecto'],
+        [2, '10:45', '12:30', 'Revisión de planos'],
+        [2, '14:30', '17:00', 'Taller con arquitectos'],
+        [2, '17:15', '19:00', 'Reunión de coordinación'],
+        [3, '08:00', '10:00', 'Revisión con arquitectos'],
+        [3, '10:15', '12:30', 'Seguimiento de contratos'],
+        [3, '14:30', '16:00', 'Cierre de presupuestos'],
+        [3, '16:15', '19:30', 'Reunión con el cliente (se suele alargar)'],
+        [4, '08:00', '11:00', 'Cierre de hormigonado'],
+        [4, '11:15', '12:45', 'Revisión de avances'],
+        [4, '14:45', '17:30', 'Auditoría de calidad'],
+        [4, '17:45', '19:00', 'Informe a gerencia'],
+        [5, '08:30', '10:30', 'Cierre semanal del proyecto'],
+        [5, '10:45', '12:30', 'Reunión con proveedores'],
+        [5, '14:30', '16:30', 'Revisión de pendientes'],
+        [5, '16:45', '18:30', 'Planificación de la próxima semana'],
       ];
       const today = localParts(x.now);
       let created = 0;

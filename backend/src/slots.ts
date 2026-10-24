@@ -30,6 +30,10 @@ const minutesOf = (hhmm: string) => {
 
 /** Límites [desde, hasta] en minutos del día en que debe caber la sesión: ventana ∩ horario del gym. */
 function bounds(user: User): [number, number] {
+  if (user.flexTimes) {
+    // Todo el horario del gym (por defecto 05:30–23:00): la ventana habitual pasa a ser solo una preferencia.
+    return [minutesOf(user.gymHours?.open ?? '05:30'), minutesOf(user.gymHours?.close ?? '23:00')];
+  }
   let lo = minutesOf(user.window.start);
   let hi = minutesOf(user.window.end);
   if (user.gymHours) {
@@ -73,8 +77,61 @@ function startTimes(user: User): Array<{ hour: number; minute: number }> {
  * Próximos `count` slots dentro de la ventana real de la usuaria. Si hay calendario conectado,
  * esquiva los bloques ocupados probando horas alternativas dentro de la ventana.
  */
+/** Partes del día en que puede caer una sesión cuando el calendario está lleno de reuniones. */
+const PARTS = [
+  { id: 'morning', label: 'antes del trabajo', from: 0, to: 11 * 60 + 30, anchor: 6 * 60 + 30 },
+  { id: 'lunch', label: 'en tu hora de almuerzo', from: 11 * 60 + 30, to: 15 * 60, anchor: 13 * 60 },
+  { id: 'afternoon', label: 'a media tarde', from: 15 * 60, to: 17 * 60 + 30, anchor: 16 * 60 },
+  { id: 'evening', label: 'después del trabajo', from: 17 * 60 + 30, to: 24 * 60, anchor: -1 },
+] as const;
+/** Se prefiere la tarde-noche (su hábito) y después el almuerzo y la mañana. */
+const PART_ORDER = ['evening', 'lunch', 'morning', 'afternoon'];
+/** Margen antes y después de una reunión: si se atrasa un poco, la sesión no choca. */
+const BUFFER_MS = 10 * 60_000;
+
+export function dayPart(d: Date) {
+  const p = localParts(d);
+  const m = p.hour * 60 + p.minute;
+  return PARTS.find((x) => m >= x.from && m < x.to)!;
+}
+
+/**
+ * Con el calendario lleno, busca en cada día los huecos de todo el horario del gym y propone de partes distintas del
+ * día (después del trabajo, almuerzo, antes de entrar), con 10 min de margen contra las reuniones.
+ */
+function flexSlots(user: User, after: Date, count: number, taken: Date[], busy: Busy[], lead: number): Date[] {
+  const dur = sessionMs(user);
+  const durMin = dur / 60_000;
+  const [lo, hi] = bounds(user);
+  const pref = minutesOf(user.preferredTime);
+  const days = user.days?.length ? user.days : PREFERRED_DAYS;
+  const start = localParts(after);
+  const picked: Date[] = [];
+  for (let i = 0; i < 28 && picked.length < count; i++) {
+    const day = addDays(start, i);
+    if (!days.includes(day.weekday)) continue;
+    const best = new Map<string, { slot: Date; gap: number }>();
+    for (let m = lo; m + durMin <= hi; m += 15) {
+      const slot = zonedToUtc(day.year, day.month, day.day, Math.floor(m / 60), m % 60);
+      const s = slot.getTime();
+      if (s < after.getTime() + lead) continue;
+      if (overlaps(slot, taken, dur)) continue;
+      if (busy.some((b) => s < b.end + BUFFER_MS && s + dur + BUFFER_MS > b.start)) continue;
+      const part = PARTS.find((x) => m >= x.from && m < x.to)!;
+      const gap = Math.abs(m - (part.anchor < 0 ? pref : part.anchor));
+      const cur = best.get(part.id);
+      if (!cur || gap < cur.gap) best.set(part.id, { slot, gap });
+    }
+    const ordered = PART_ORDER.filter((id) => best.has(id)).map((id) => best.get(id)!.slot);
+    picked.push(...ordered.slice(0, 2));
+  }
+  return picked.slice(0, count).sort((a, b) => a.getTime() - b.getTime());
+}
+
 export function nextSlots(user: User, after: Date, count: number, taken: Date[] = [], busy: Busy[] = [], opts: { lead?: number } = {}): Date[] {
   const lead = opts.lead ?? MIN_LEAD_MS;
+  // Con el calendario cargado y el horario flexible, se reparte en partes del día; sin reuniones, el hábito de siempre.
+  if (user.flexTimes && busy.length > 0) return flexSlots(user, after, count, taken, busy, lead);
   const times = startTimes(user);
   const dur = sessionMs(user);
   const days = user.days?.length ? user.days : PREFERRED_DAYS;

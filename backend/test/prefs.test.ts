@@ -47,9 +47,9 @@ describe('reglas de la sesión (PATCH /preferences)', () => {
 
   it('una sesión que no cabe en el horario del gym no se propone', async () => {
     const app = await setup();
-    await app.request(`/api/users/${DEMO_USER_ID}/preferences`, send('PATCH', { gymHours: { open: '06:00', close: '19:30' }, sessionMin: 60 }));
+    await app.request(`/api/users/${DEMO_USER_ID}/preferences`, send('PATCH', { gymHours: { open: '19:00', close: '19:30' }, sessionMin: 60 }));
     const res = await app.request(`/api/users/${DEMO_USER_ID}/weekly-capture`, send('POST', {}));
-    // la ventana 19:00–21:00 ∩ gym 06:00–19:30 no deja espacio para 60 min
+    // un gym abierto solo 30 min no deja espacio para 60 min
     expect(res.status).toBe(409);
   });
 
@@ -70,9 +70,13 @@ describe('disponibilidad informada por el front (POST /busy)', () => {
       send('POST', { weekOf: '2026-10-26', intervals: [{ start: new Date(start - 30 * 60000).toISOString(), end: new Date(start + 30 * 60000).toISOString() }] }),
     );
     expect(res.status).toBe(200);
-    const again = (await capture(app)).options[0] as string;
-    expect(again).not.toBe(first);
-    expect(Date.parse(again)).toBeGreaterThanOrEqual(start + 30 * 60000);
+    const again = (await capture(app)).options as string[];
+    expect(again).not.toContain(first);
+    for (const o of again) {
+      // ninguna opción pisa el bloque ocupado (con 10 min de margen)
+      const t = Date.parse(o);
+      expect(t < start + 30 * 60000 + 10 * 60000 && t + 40 * 60000 + 10 * 60000 > start - 30 * 60000).toBe(false);
+    }
   });
 
   it('es idempotente: la lista vacía limpia la semana', async () => {
