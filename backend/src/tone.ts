@@ -53,6 +53,16 @@ export const T = {
       'Descansa cerca de 1 min entre series y elige un peso con el que mantengas buena técnica. Si algo te molesta, para y consúltalo con un kinesiólogo o un médico deportólogo.',
     ].join('\n'),
   focusOnly: (focus: string) => `Ese día toca ${focus}. Todavía no tengo una rutina armada para ese día.`,
+  travelWarmup: (w: { walkMin: number; jogMin: number; mobilityMin: number }) =>
+    [
+      'Para llegar con el cuerpo listo al gym:',
+      `• Camina a paso ligero ${w.walkMin} min`,
+      ...(w.jogMin > 0 ? [`• Trota suave los últimos ${w.jogMin} min antes de llegar`] : []),
+      `• Al llegar: ${w.mobilityMin} min de movilidad (tu rutina parte con el calentamiento)`,
+      'Si vas en auto o metro, haz la caminata bajándote unas cuadras antes. Si algo te molesta, para y consúltalo con un kinesiólogo o un médico deportólogo.',
+    ].join('\n'),
+  pausaActiva: (gap: number, moves: string[]) =>
+    [`Tienes un rato libre entre reuniones (${gap} min). Una pausa activa para soltar el cuerpo antes del gym:`, ...moves.map((m) => `• ${m}`), 'Sin apuro y sin dolor; si algo te molesta, para.'].join('\n'),
   noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
   slotChosenCal: (label: string, venue: string) => `Listo: ${label}, ${venue}. Ya quedó en tu Google Calendar.`,

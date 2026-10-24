@@ -131,3 +131,41 @@ export function buildRoutine(minutes: number, groups: MuscleGroup[], variant = 0
   if (!items.length) return null;
   return { minutes, warmupMin: WARMUP_MIN, items, groups: pool };
 }
+
+// ───────────── Movimiento fuera del gym (calentar en el camino y pausas activas) ─────────────
+
+export interface TravelWarmup {
+  /** Minutos de caminata a paso ligero. */
+  walkMin: number;
+  /** Minutos de trote suave al final del camino (0 si el tiempo no alcanza). */
+  jogMin: number;
+  /** Minutos de movilidad al llegar (el calentamiento de la rutina). */
+  mobilityMin: number;
+}
+
+/**
+ * Plan para llegar con el cuerpo listo: caminar y, si hay tiempo, terminar trotando suave. `minutes` es el tiempo
+ * libre antes de la cita; se usan como máximo 20 min y nunca más de lo que hay. Sin cifras del cuerpo ni metas.
+ */
+export function buildTravelWarmup(minutes: number): TravelWarmup {
+  const total = Math.max(0, Math.min(20, Math.floor(minutes)));
+  if (total < 6) return { walkMin: Math.max(total, 0), jogMin: 0, mobilityMin: WARMUP_MIN };
+  const jogMin = total >= 12 ? Math.min(6, Math.round(total * 0.3)) : 0;
+  return { walkMin: total - jogMin, jogMin, mobilityMin: WARMUP_MIN };
+}
+
+/** Movimientos para un rato libre entre reuniones (sin equipo, en ropa de trabajo). */
+const BREAK_MOVES = [
+  'Círculos de hombros: 10 hacia atrás y 10 hacia adelante',
+  'Rotación suave de cuello: 5 por lado',
+  'Giro de tronco de pie: 10 por lado',
+  'Círculos de cadera: 10 por lado',
+  'Sentadillas lentas al aire: 10',
+  'Marcha en el lugar: 1 min',
+];
+
+/** Pausa activa que cabe en `minutes` libres: 3 movimientos desde 10 min, 5 desde 15. */
+export function buildBreak(minutes: number): string[] | null {
+  if (minutes < 10) return null;
+  return BREAK_MOVES.slice(0, minutes >= 15 ? 5 : 3);
+}

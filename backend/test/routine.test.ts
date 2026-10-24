@@ -87,7 +87,7 @@ describe('rutina según el tiempo libre del calendario', () => {
     await book(call);
     await call('/api/demo/clock', { preset: 'monday-1830' });
     const rem = await call(`${u}/reminder`);
-    expect(rem.replies).toHaveLength(2);
+    expect(rem.replies).toHaveLength(3); // recordatorio, rutina y calentamiento en camino
     const text = rem.replies[1].text as string;
     expect(text).toMatch(/Calentamiento/);
     expect(toneViolations(text)).toEqual([]);
