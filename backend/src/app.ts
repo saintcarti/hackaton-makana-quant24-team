@@ -662,7 +662,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
       const rename = /^\/nombre(?:@\w+)?\s+(.+)/i.exec(text);
       if (/^\/nombre\b/i.test(text)) {
         const name = rename ? engine.setName(x, user.id, rename[1]!) : null;
-        await tg?.sendText(inbound.chatId, name ? T.nameChanged(name) : T.nameInvalid()).catch(() => undefined);
+        await tg?.sendText(inbound.chatId, name ? T.nameChanged(name) : rename ? T.nameInvalid() : T.nameUsage()).catch(() => undefined);
         return;
       }
       if (/^\/web\b/i.test(text)) {

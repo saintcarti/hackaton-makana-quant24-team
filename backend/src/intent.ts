@@ -1,6 +1,6 @@
-import { ADVISE } from './advice.js';
+import { ADVISE, SCHEDULE_Q } from './advice.js';
 
-export type Intent = 'advise' | 'warmup' | 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
+export type Intent = 'schedule' | 'advise' | 'warmup' | 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
 const RESUME = /\b(ya|lo)\b.*\b(convers|habl|consult|vi|fui|revis)\w*\b.*\b(kinesi\w*|m[eé]dic\w*|deport[oó]log\w*|profesional)\b/;
@@ -24,6 +24,7 @@ export function classifyByRules(text: string): Intent {
   if (PAIN.test(t)) return 'pain';
   if (RESUME.test(t)) return 'resume';
   if (ADVISE.test(t)) return 'advise';
+  if (SCHEDULE_Q.test(t)) return 'schedule';
   if (WARMUP.test(t)) return 'warmup';
   if (ROUTINE.test(t)) return 'routine';
   if (CONNECT.test(t)) return 'connect';
@@ -72,9 +73,9 @@ export interface LlmParser {
 }
 
 const CLASSIFY_PROMPT =
-  'Clasificas el mensaje de una usuaria que agenda su cita de gimnasio. Responde SOLO una palabra de esta lista: move (quiere cambiar o no puede ir hoy), done (ya entrenó), skip_week (no quiere esta semana), pain (menciona dolor o lesión), propose (quiere que le propongan horarios), unknown.';
+  'Clasificas el mensaje de una usuaria que agenda su cita de gimnasio. Responde SOLO una palabra de esta lista: move (quiere cambiar o no puede ir hoy), done (ya entrenó), skip_week (no quiere esta semana), pain (menciona dolor o lesión), propose (quiere que le propongan horarios), schedule (pregunta qué tiene en su calendario o agenda), unknown.';
 
-const VALID_INTENTS: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose', 'unknown'];
+const VALID_INTENTS: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose', 'schedule', 'unknown'];
 
 /**
  * Extrae la intención aunque el modelo "piense en voz alta": descarta bloques <think>,
@@ -83,7 +84,7 @@ const VALID_INTENTS: Intent[] = ['move', 'done', 'skip_week', 'pain', 'propose',
 export function toIntent(raw: string | undefined | null): Intent | null {
   if (!raw) return null;
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, ' ').replace(/<think>[\s\S]*$/i, ' ').toLowerCase();
-  const found = clean.match(/\b(?:skip_week|move|done|pain|propose|unknown)\b/g);
+  const found = clean.match(/\b(?:skip_week|move|done|pain|propose|schedule|unknown)\b/g);
   return found ? (found[found.length - 1] as Intent) : null;
 }
 
