@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Privacidad · gogym</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <style>
+      :root { --bg: #ffffff; --ink: #1c1f26; --muted: #5b6270; --line: #e3e6ec; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0d121c; --ink: #e8ecf4; --muted: #9aa3b5; --line: #232b3a; } }
+      body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+      main { max-width: 42rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+      h1 { font-size: 1.7rem; margin: 0 0 .25rem; }
+      h2 { font-size: 1.1rem; margin: 2rem 0 .4rem; }
+      p, li { color: var(--ink); }
+      .muted { color: var(--muted); }
+      img { height: 28px; width: auto; display: block; margin-bottom: 1.2rem; }
+      @media (prefers-color-scheme: dark) { img { filter: invert(1) brightness(1.15); } }
+      hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/logo.png" alt="gogym" />
+      <h1>Política de privacidad</h1>
+      <p class="muted">gogym está en <strong>beta cerrada</strong> y se prueba solo con <strong>cuentas y datos de prueba</strong>. Última actualización: 24 de octubre de 2026.</p>
+
+      <h2>Qué es gogym</h2>
+      <p>Un agente que mira tu calendario, encuentra huecos para ir al gimnasio, agenda tu cita, arma tu rutina con el tiempo que realmente tienes y la corre sola si una reunión se alarga.</p>
+
+      <h2>Qué guardamos</h2>
+      <ul>
+        <li><strong>Tu cuenta:</strong> un alias y una contraseña (guardada con PBKDF2-SHA256, nunca en claro) o, si usas Telegram, el identificador numérico de tu chat. No pedimos correo ni tu nombre real.</li>
+        <li><strong>Tu actividad en gogym:</strong> tus citas, tus preferencias (veces por semana, horarios) y la conversación con el agente.</li>
+        <li><strong>Tu calendario, solo si lo conectas:</strong> el permiso de Google para leer tus horas ocupadas y crear/mover las citas de gogym. Guardamos las <em>horas</em> ocupadas para encontrar huecos; no guardamos los títulos ni el contenido de tus reuniones. El permiso se almacena en nuestros servidores y se revoca cuando desconectas o borras tu cuenta.</li>
+      </ul>
+
+      <h2>Para qué lo usamos</h2>
+      <p>Solo para agendar y mover tu cita, recomendarte horarios, armar tu rutina y avisarte por Telegram o en la web. No vendemos ni compartimos tus datos con terceros, no hacemos publicidad y no usamos tu información de Google para entrenar modelos. Para entender frases como «cámbialo para las 8» usamos un modelo de lenguaje de Cloudflare Workers AI que solo clasifica o extrae la hora; los mensajes que recibes salen de plantillas fijas.</p>
+      <p>El uso de la información que recibimos de las APIs de Google se ajusta a la política de datos de usuario de los servicios de Google, incluidos los requisitos de uso limitado.</p>
+
+      <h2>Salud</h2>
+      <p>gogym no es un servicio médico. Si mencionas dolor, no te damos ejercicios: te sugerimos consultar a un kinesiólogo o médico deportólogo.</p>
+
+      <h2>Dónde se guardan</h2>
+      <p>En la infraestructura de Cloudflare (Workers y Durable Objects). El acceso a tus datos requiere tu sesión; las cuentas de Telegram y de la web solo ven lo propio.</p>
+
+      <h2>Cómo borrar tus datos</h2>
+      <ul>
+        <li>En Telegram: escribe <strong>/borrar</strong> y confirma.</li>
+        <li>En la web: <strong>Borrar mi cuenta</strong>, arriba a la derecha.</li>
+      </ul>
+      <p>Se eliminan tu cuenta, tus citas, el chat, el permiso del calendario (se revoca en Google) y los eventos que gogym creó en tu calendario.</p>
+
+      <h2>Cambios y contacto</h2>
+      <p>Si esta política cambia, actualizaremos esta página. Para dudas, escríbele al bot en Telegram.</p>
+      <hr />
+      <p class="muted">Proyecto de la Hackatón Señales. Beta con datos de prueba; no es un servicio abierto al público.</p>
+    </main>
+  </body>
+</html>
