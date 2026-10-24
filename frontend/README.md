@@ -17,6 +17,8 @@ Copia `.env.example` a `.env.local` si necesitas cambiar la URL de la API, activ
 
 **Deploy:** desde esta carpeta, `npx vercel@latest deploy --prod --yes` (proyecto `itsbenjaxs-projects/la-cita`, https://la-cita-nine.vercel.app). `VITE_API_URL` se inyecta al compilar: si cambia, hay que redesplegar.
 
+**Espejo en Cloudflare (sin depender de Vercel):** https://gogym-web.x-liberona.workers.dev. Desde `backend/` (con `backend/.env` cargado): `VITE_API_URL=https://la-cita-api.x-liberona.workers.dev pnpm --dir ../frontend build && pnpm exec wrangler deploy --config ../frontend/wrangler.jsonc`. Es el mismo build que Vercel servido como sitio estático.
+
 **Plan B sin red (R6):** backend local (`pnpm start` en `backend/`) y esta web local (`pnpm build && pnpm preview`). Las fuentes van empaquetadas; Google es lo único que necesita internet.
 
 ## Qué hay

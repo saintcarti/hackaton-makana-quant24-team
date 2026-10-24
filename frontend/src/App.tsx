@@ -705,6 +705,17 @@ export default function App() {
     setEntered(true);
   }
 
+  /** Borra la cuenta de esta persona (citas, chat y permiso del calendario) y cierra la sesión. */
+  async function deleteMyAccount() {
+    if (!window.confirm('¿Borrar tu cuenta con todo lo tuyo (citas, chat y la conexión con tu calendario)? No se puede deshacer.')) return;
+    try {
+      await api.deleteAccount();
+      signOut();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'No pudimos borrar la cuenta.');
+    }
+  }
+
   function signOut() {
     signOutGoogle(google);
     setGoogle(null);
@@ -730,7 +741,7 @@ export default function App() {
     return <Login onGoogle={connectGoogle} onDemo={enterDemo} onCode={enterWithCode} telegramBot={TELEGRAM_BOT} />;
   }
 
-  const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
+  const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram' || u.channel.type === 'web');
   const offline = apiDown || isOffline(chatErrorStatus);
   const notPrepared = !offline && chatErrorStatus === 404 && isDemoUser;
   // «Esta semana» es la del reloj; la que el agente planifica puede ser la que viene (viernes en la noche, fin de semana).
@@ -782,6 +793,11 @@ export default function App() {
             </svg>
           )}
         </button>
+        {getSession() && (
+          <button className="btn btn-quiet btn-sm" onClick={deleteMyAccount}>
+            Borrar mi cuenta
+          </button>
+        )}
         <button className="btn btn-quiet btn-sm" onClick={signOut}>
           Salir
         </button>

@@ -1,7 +1,8 @@
+import type { Account } from './auth.js';
 import type { Commute } from './advice.js';
 import type { Routine } from './routine.js';
 
-export type ChannelKind = 'sim' | 'telegram';
+export type ChannelKind = 'sim' | 'telegram' | 'web';
 
 export interface User {
   id: string;
@@ -176,6 +177,10 @@ export interface DB {
   google?: Record<string, GoogleLink>;
   /** Bloques ocupados informados por el front (solo inicio y fin, ms epoch), por usuaria y semana. */
   busy?: Record<string, Record<string, Array<[number, number]>>>;
+  /** Cuentas de la web por alias (contraseña con PBKDF2). */
+  accounts?: Record<string, Account>;
+  /** Intentos fallidos de contraseña por alias (ms epoch). */
+  authFailures?: Record<string, number[]>;
   /** Chats de Telegram que entraron con el código de invitación (beta cerrada). */
   allowedChats?: number[];
   /** Códigos de un solo uso para entrar a la web desde Telegram (/web). */

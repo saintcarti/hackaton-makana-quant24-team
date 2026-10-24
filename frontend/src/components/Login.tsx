@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, setSession } from '../lib/api';
+import AccountForm from './AccountForm';
 import type { GoogleStatus } from '../lib/api-types';
 import { googleClientId, preloadGoogle } from '../lib/google';
 
@@ -97,9 +98,11 @@ export default function Login({ onGoogle, onDemo, onCode, telegramBot }: Props) 
       <section className="login-panel">
         <h2 className="display">Tu semana, con una hora para ti</h2>
         <p className="muted" style={{ margin: 0 }}>
-          Conecta tu Google Calendar para ver tus reuniones junto a tu cita. La conversación pasa por Telegram:
-          aquí ves el calendario completo.
+          Crea tu cuenta, conecta tu Google Calendar y gogym ordena tu semana para que el gym siempre tenga un hueco,
+          aunque las reuniones se alarguen.
         </p>
+        <AccountForm onEntered={onCode} />
+        <div className="login-or small muted">o mira la demo</div>
         {/* Sin Google configurado no se muestra un botón deshabilitado como acción principal. */}
         <div className="login-actions">
           {googleClientId && (
@@ -114,7 +117,7 @@ export default function Login({ onGoogle, onDemo, onCode, telegramBot }: Props) 
             </button>
           )}
           <button className={`btn${googleClientId ? '' : ' btn-primary'}`} onClick={onDemo}>
-            Entrar como Camila sintética
+            Ver la demo con Camila sintética
           </button>
           {srv?.configured && srv.connectUrl && !srv.connected && (
             <a className="btn" href={srv.connectUrl} target="_blank" rel="noreferrer">
@@ -124,7 +127,7 @@ export default function Login({ onGoogle, onDemo, onCode, telegramBot }: Props) 
         </div>
         <form className="login-code" onSubmit={enterWithCode}>
           <label htmlFor="login-code-input" className="small muted">
-            ¿Ya hablaste con el bot? Escribe /web en Telegram y entra con tu código
+            ¿Prefieres Telegram? Escribe /web al bot y entra con tu código
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
