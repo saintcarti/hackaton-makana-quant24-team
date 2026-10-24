@@ -1,5 +1,5 @@
 import { User } from './types.js';
-import { addDays, dateKey, localParts, parseHHMM, zonedToUtc } from './time.js';
+import { addDays, dateKey, dayName, localParts, pad, parseHHMM, zonedToUtc } from './time.js';
 
 /** Lunes, miércoles, viernes: martes y jueves quedan descartados (Camila llega tarde, caso 1). */
 export const PREFERRED_DAYS = [1, 3, 5];
@@ -79,15 +79,22 @@ function startTimes(user: User): Array<{ hour: number; minute: number }> {
  */
 /** Partes del día en que puede caer una sesión cuando el calendario está lleno de reuniones. */
 const PARTS = [
-  { id: 'morning', label: 'antes del trabajo', from: 0, to: 11 * 60 + 30, anchor: 6 * 60 + 30 },
-  { id: 'lunch', label: 'en tu hora de almuerzo', from: 11 * 60 + 30, to: 15 * 60, anchor: 13 * 60 },
-  { id: 'afternoon', label: 'a media tarde', from: 15 * 60, to: 17 * 60 + 30, anchor: 16 * 60 },
-  { id: 'evening', label: 'después del trabajo', from: 17 * 60 + 30, to: 24 * 60, anchor: -1 },
+  { id: 'morning', label: 'antes del trabajo', short: 'antes del trabajo', from: 0, to: 11 * 60 + 30, anchor: 6 * 60 + 30 },
+  { id: 'lunch', label: 'en tu hora de almuerzo', short: 'almuerzo', from: 11 * 60 + 30, to: 15 * 60, anchor: 13 * 60 },
+  { id: 'afternoon', label: 'a media tarde', short: 'media tarde', from: 15 * 60, to: 17 * 60 + 30, anchor: 16 * 60 },
+  { id: 'evening', label: 'después del trabajo', short: 'tras el trabajo', from: 17 * 60 + 30, to: 24 * 60, anchor: -1 },
 ] as const;
 /** Se prefiere la tarde-noche (su hábito) y después el almuerzo y la mañana. */
 const PART_ORDER = ['evening', 'lunch', 'morning', 'afternoon'];
 /** Margen antes y después de una reunión: si se atrasa un poco, la sesión no choca. */
 const BUFFER_MS = 10 * 60_000;
+
+/** Etiqueta corta para un botón (cabe en una fila de Telegram): «Lun 26 · 13:00 · almuerzo». */
+export function slotButtonLabel(d: Date): string {
+  const p = localParts(d);
+  const day = dayName(p.weekday);
+  return `${day.charAt(0).toUpperCase()}${day.slice(1, 3)} ${p.day} · ${pad(p.hour)}:${pad(p.minute)} · ${dayPart(d).short}`;
+}
 
 export function dayPart(d: Date) {
   const p = localParts(d);
