@@ -22,7 +22,7 @@ describe('crear cuenta e iniciar sesión en la web', () => {
     expect(alias).toBe('ana.gym'); // el alias se normaliza
     const auth = { Authorization: `Bearer ${token}` };
     const msgs = await (await t.get(`/api/users/${userId}/messages`, auth)).json<any>();
-    expect(msgs.messages.map((m: any) => m.text).join('\n')).toMatch(/Cuántas veces por semana/);
+    expect(msgs.messages.map((m: any) => m.text).join('\n')).toMatch(/Cuántos días a la semana/);
     // la contraseña no queda en claro en ninguna parte
     expect(JSON.stringify(await t.engine.read((c) => c.db))).not.toContain('clave-segura-1');
   });

@@ -28,7 +28,7 @@ export interface SessionPrefs {
 export type PrefsSource = 'backend' | 'local' | 'default';
 
 export const SESSION_OPTIONS: SessionMin[] = [30, 40, 50, 60];
-export const PER_WEEK_OPTIONS = [1, 2, 3];
+export const PER_WEEK_OPTIONS = [1, 2, 3, 4, 5, 6, 7];
 export const DEFAULT_GYM_HOURS = { open: '06:00', close: '22:00' };
 /** Lunes, miércoles y viernes: los mismos días que usa hoy el backend (backend/src/slots.ts PREFERRED_DAYS). */
 const DEFAULT_DAYS = [1, 3, 5];
@@ -65,7 +65,7 @@ function sanitize(raw: unknown, base: SessionPrefs): SessionPrefs {
   };
   const mode: PlanMode = r.mode === 'manual' ? 'manual' : r.mode === 'auto' ? 'auto' : base.mode;
   const split = isValidChoice(r.split) ? { ...r.split! } : base.split;
-  const wanted = Number.isInteger(r.perWeek) ? Math.min(3, Math.max(1, r.perWeek!)) : base.perWeek;
+  const wanted = Number.isInteger(r.perWeek) ? Math.min(7, Math.max(1, r.perWeek!)) : base.perWeek;
   return {
     gymHours: okRange(r.gymHours, 'open', 'close') ? { ...r.gymHours! } : base.gymHours,
     window: okRange(r.window, 'start', 'end') ? { ...r.window! } : base.window,
@@ -113,10 +113,10 @@ export function loadPrefs(user: User | null): { prefs: SessionPrefs; source: Pre
 
 /**
  * Lo que se manda a PATCH /preferences al guardar. En modo agente no van el split ni la duración: los decide el
- * agente con el calendario y la web los sincroniza aparte (App). perWeek del backend acepta hasta 3.
+ * agente con el calendario y la web los sincroniza aparte (App). perWeek del backend acepta de 1 a 7 (de 4 a 7 el agente arma la semana completa).
  */
 export function toBackendPrefs(p: SessionPrefs) {
-  const common = { gymHours: p.gymHours, window: p.window, perWeek: Math.min(3, p.perWeek), days: p.days };
+  const common = { gymHours: p.gymHours, window: p.window, perWeek: Math.min(7, p.perWeek), days: p.days };
   return p.mode === 'manual' ? { ...common, sessionMin: p.sessionMin, split: p.split } : common;
 }
 

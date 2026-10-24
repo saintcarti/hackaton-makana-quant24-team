@@ -28,6 +28,8 @@ export class TelegramChannel {
     let row: Btn[] = [];
     for (const b of buttons) {
       row.push(b.url ? { text: b.label, url: b.url } : { text: b.label, callback_data: b.action.slice(0, 64) });
+      // Botones de una sola cifra («1»…«7») se agrupan; el resto, uno por fila para que el texto no se corte.
+      if (b.label.length <= 2 && !b.url && row.length < 4) continue;
       rows.push(row);
       row = [];
     }

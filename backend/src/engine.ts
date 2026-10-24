@@ -103,6 +103,9 @@ export class Engine {
   run<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
     const job = this.queue.then(async () => {
       const db = await this.deps.store.load();
+      for (const u of Object.values(db.users)) {
+        if (u.gymHours?.open === '05:30' && u.gymHours.close === '23:00') u.gymHours = { open: '06:00', close: '22:00' };
+      }
       const c: Ctx = { db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], edits: [], busy: new Map() };
       await this.loadBusy(c);
       const result = await fn(c);
@@ -407,7 +410,7 @@ export class Engine {
     user.pending = { kind: 'onboarding', step: 'perWeek' };
     this.emit(c, userId, {
       text: T.askPerWeek(),
-      buttons: [1, 2, 3].map((n) => ({ label: T.btn.perWeek(n), action: `pw:${n}` })),
+      buttons: [1, 2, 3, 4, 5, 6, 7].map((n) => ({ label: String(n), action: `pw:${n}` })),
     });
   }
 
@@ -423,7 +426,7 @@ export class Engine {
   }
 
   private handleOnboardingAction(c: Ctx, user: User, action: string): boolean {
-    const m = /^pw:([123])$/.exec(action);
+    const m = /^pw:([1-7])$/.exec(action);
     if (m) {
       user.perWeek = Number(m[1]);
       const connect = this.connectButton(c, user);
@@ -517,7 +520,7 @@ export class Engine {
       plannedVisitsPerMonth: 3,
       window: { start: '19:00', end: '21:00' },
       flexTimes: true,
-      gymHours: { open: '05:30', close: '23:00' },
+      gymHours: { open: '06:00', close: '22:00' },
       preferredTime: input.preferredTime ?? '19:15',
       channel: input.channel ?? { type: 'sim' },
       synthetic: input.synthetic ?? true,
@@ -531,8 +534,168 @@ export class Engine {
 
   // ───────────────────────── M1: captura dominical ─────────────────────────
 
+  /** Varias sesiones por semana (2 a 7) en cuentas reales: el agente arma la semana completa y ella la confirma. */
+  private multi(user: User): boolean {
+    return (user.perWeek ?? 1) >= 2 && user.channel.type !== 'sim';
+  }
+
+  private static readonly SPLIT_FOR: Record<number, SplitChoice> = {
+    4: { id: 'upper-lower', sessions: 4 },
+    5: { id: 'cinco-dias', sessions: 5 },
+    6: { id: 'ppl', sessions: 6 },
+    7: { id: 'ppl', sessions: 7 },
+  };
+
+  /** Mejores días para N sesiones: los más separados entre sí (si no hay N días con hueco, todos los que haya). */
+  private static pickSpread<T extends { index: number }>(cands: T[], n: number): T[] {
+    if (cands.length <= n) return cands;
+    let best: T[] = [];
+    let bestScore = -1;
+    const go = (from: number, chosen: T[]) => {
+      if (chosen.length === n) {
+        const gaps = chosen.slice(1).map((x, i) => x.index - chosen[i]!.index);
+        const weekend = chosen.filter((x) => x.index >= 5).length;
+        // Un día de descanso entre sesiones basta (más separación no aporta); a igualdad, mejor entre semana y más temprano.
+        const score = Math.min(...gaps, 2) * 1000 - weekend * 50 - chosen.reduce((s, x) => s + x.index, 0);
+        if (score > bestScore) {
+          bestScore = score;
+          best = [...chosen];
+        }
+        return;
+      }
+      for (let i = from; i < cands.length; i++) go(i + 1, [...chosen, cands[i]!]);
+    };
+    go(0, []);
+    return best;
+  }
+
+  /** Etiquetas de la semana propuesta: «Lun 26 · 13:00 · almuerzo · Push». */
+  private planLines(user: User, appts: Appointment[]): string[] {
+    const when = (a: Appointment) => new Date(a.startsAt ?? a.options[0]!);
+    const dates = appts.map((a) => dateKey(localParts(when(a))));
+    const plan =
+      user.split && !user.painPause && isValidChoice(user.split as SplitChoice)
+        ? planSplit(user.split as SplitChoice, dates.map((d) => ({ date: d, booked: true })), [])
+        : null;
+    return appts.map((a, i) => {
+      const focus = a.focus?.label ?? plan?.sessions.find((s) => s.date === dates[i])?.dayType.label;
+      return `${slotButtonLabel(when(a))}${focus ? ` · ${focus}` : ''}`;
+    });
+  }
+
+  private planAppts(c: Ctx, userId: string): Appointment[] {
+    return Object.values(c.db.appointments)
+      .filter((a) => a.userId === userId && a.status === 'proposed' && a.planId)
+      .sort((x, y) => x.options[0]!.localeCompare(y.options[0]!));
+  }
+
+  private emitPlan(c: Ctx, user: User, appts: Appointment[]) {
+    this.emit(c, user.id, {
+      text: T.weekPlan(user.name, this.planLines(user, appts), user.sessionMin ?? 40, user.perWeek ?? appts.length),
+      buttons: [
+        { label: T.btn.planOk, action: 'plan:ok' },
+        { label: T.btn.planEdit, action: 'plan:edit' },
+        { label: T.btn.skipWeek, action: 'skip_week' },
+      ],
+    });
+  }
+
+  startWeekPlan(c: Ctx, userId: string): Appointment {
+    const user = this.user(c, userId);
+    const n = user.perWeek ?? 2;
+    for (const a of Object.values(c.db.appointments)) if (a.userId === userId && a.status === 'proposed') delete c.db.appointments[a.id];
+    const busy = this.busyFor(c, userId);
+    const [probe] = nextSlots(user, c.now, 1, this.taken(c, userId), busy);
+    const monday = probe ? mondayOf(probe) : mondayOf(new Date(c.now.getTime() + 7 * 86400_000));
+    // Split y duración: de 1 a 3 los decide el agente con el calendario; de 4 a 7, el que corresponde a esa cantidad.
+    if (n <= 3) this.autoPlanWeek(c, user, monday);
+    else {
+      user.split = { ...Engine.SPLIT_FOR[n]! };
+      user.sessionMin = user.sessionMin ?? 40;
+    }
+    // Si marcó menos días que sesiones, se usan todos los días: no se puede ir 5 veces en 3 días.
+    const allowed = user.days && user.days.length >= n ? user.days : [0, 1, 2, 3, 4, 5, 6];
+    const taken = this.taken(c, userId);
+    const cands: Array<{ index: number; date: string; slot: Date }> = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(parseDateKey(monday), i);
+      if (!allowed.includes(d.weekday)) continue;
+      const after = new Date(Math.max(c.now.getTime(), zonedToUtc(d.year, d.month, d.day, 0, 0).getTime() - 1));
+      const [slot] = nextSlots({ ...user, days: [d.weekday] }, after, 1, taken, busy);
+      if (slot && dateKey(localParts(slot)) === dateKey(d)) cands.push({ index: i, date: dateKey(d), slot });
+    }
+    const chosen = Engine.pickSpread(cands, n);
+    if (!chosen.length) throw new DomainError('no_slots', 'No hay horarios disponibles', 409);
+    const planId = shortId('p');
+    const appts = chosen.map((x) => {
+      const appt: Appointment = {
+        id: shortId('a'),
+        userId,
+        startsAt: null,
+        durationMin: user.sessionMin ?? 40,
+        venue: this.config.venue,
+        content: '3 máquinas que ya conoces',
+        status: 'proposed',
+        source: 'user',
+        options: [x.slot.toISOString()],
+        moves: [],
+        weekOf: monday,
+        createdAt: c.now.toISOString(),
+        planId,
+      };
+      c.db.appointments[appt.id] = appt;
+      return appt;
+    });
+    user.pending = { kind: 'plan', sentAt: c.now.toISOString() };
+    this.event(c, userId, 'capture_sent', appts[0]!.id);
+    this.emitPlan(c, user, appts);
+    return appts[0]!;
+  }
+
+  /** Confirma toda la semana propuesta: cada sesión queda agendada (y en el calendario si está conectado). */
+  confirmPlan(c: Ctx, userId: string) {
+    const user = this.user(c, userId);
+    const appts = this.planAppts(c, userId);
+    if (!appts.length) {
+      this.emit(c, userId, { text: T.noAppointment(), buttons: [{ label: T.btn.propose, action: 'propose' }] });
+      return;
+    }
+    for (const a of appts) this.place(c, user, a, new Date(a.options[0]!), 'user', undefined, true);
+    const lines = this.planLines(user, appts);
+    this.emit(c, userId, { text: T.weekConfirmed(lines, this.isConnected(c, userId)) });
+  }
+
+  /** Texto libre durante el plan («el miércoles a las 20:00»): cambia esa sesión y muestra la semana de nuevo. */
+  private editPlan(c: Ctx, user: User, text: string): boolean {
+    const when = parseWhen(text, c.now, user, { requireExplicit: true });
+    if (!when) return false;
+    const appts = this.planAppts(c, user.id);
+    const day = dateKey(localParts(when));
+    const target = appts.find((a) => dateKey(localParts(new Date(a.options[0]!))) === day);
+    if (!target) {
+      this.emit(c, user.id, { text: T.planWhichDay() });
+      return true;
+    }
+    if (!withinGymHours(user, when)) {
+      const gym = user.gymHours ?? { open: '06:00', close: '22:00' };
+      this.emit(c, user.id, { text: T.outsideGym(formatTime(when), gym.open, gym.close) });
+      this.emitPlan(c, user, appts);
+      return true;
+    }
+    const dur = (user.sessionMin ?? 40) * 60_000;
+    const clash = appts.some((a) => a.id !== target.id && Math.abs(Date.parse(a.options[0]!) - when.getTime()) < dur);
+    if (clash) {
+      this.emit(c, user.id, { text: T.planBusy() });
+      return true;
+    }
+    target.options = [when.toISOString()];
+    this.emitPlan(c, user, this.planAppts(c, user.id));
+    return true;
+  }
+
   startCapture(c: Ctx, userId: string, opts: { extraBusy?: Busy[]; describe?: (options: Date[]) => string } = {}): Appointment {
     const user = this.user(c, userId);
+    if (!opts.describe && !opts.extraBusy && this.multi(user)) return this.startWeekPlan(c, userId);
     const busy = [...this.busyFor(c, userId), ...(opts.extraBusy ?? [])];
     // Reemplaza una propuesta anterior sin respuesta.
     for (const a of Object.values(c.db.appointments)) {
@@ -670,10 +833,18 @@ export class Engine {
     const monday = parseDateKey(appt.weekOf);
     const allowed = user.days?.length ? user.days : PREFERRED_DAYS;
     const candidates: Candidate[] = [];
+    // Varias sesiones en la semana (confirmadas o en el plan propuesto): todas son días con sesión.
+    const others = new Set<string>();
+    for (const a of Object.values(c.db.appointments)) {
+      if (a.userId !== user.id || a.id === appt.id || a.weekOf !== appt.weekOf) continue;
+      if (a.status !== 'proposed' && a.status !== 'confirmed' && a.status !== 'reminded') continue;
+      const iso = a.startsAt ?? a.options[0];
+      if (iso) others.add(local(iso));
+    }
     for (let i = 0; i < 7; i++) {
       const d = addDays(monday, i);
       const key = dateKey(d);
-      if (key === day || allowed.includes(d.weekday)) candidates.push({ date: key, booked: key === day });
+      if (key === day || others.has(key) || allowed.includes(d.weekday)) candidates.push({ date: key, booked: key === day || others.has(key) });
     }
     const fixed: FixedSession[] = [];
     for (const a of Object.values(c.db.appointments)) {
@@ -723,21 +894,22 @@ export class Engine {
   }
 
   /** Confirma o mueve una cita a una hora concreta. */
-  private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source'], auto?: { from: Date }) {
+  private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source'], auto?: { from: Date }, quiet = false) {
     const wasMove = appt.startsAt != null && appt.startsAt !== when.toISOString();
     if (wasMove) appt.moves.push({ from: appt.startsAt!, to: when.toISOString(), at: c.now.toISOString() });
     appt.startsAt = when.toISOString();
     appt.status = 'confirmed';
     appt.source = source;
     appt.weekOf = mondayOf(when);
-    if (!wasMove) this.supersede(c, user, appt);
+    if (!wasMove && !this.multi(user)) this.supersede(c, user, appt);
     appt.conflictNoticed = undefined;
-    this.clearButtons(c, user.id, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week' || a === 'move' || a === 'done');
+    this.clearButtons(c, user.id, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week' || a === 'move' || a === 'done' || a.startsWith('plan:'));
     if (auto) appt.autoShifts = (appt.autoShifts ?? 0) + 1;
     this.assignFocus(c, user, appt);
     user.pending = null;
     c.ops.add(appt.id);
     this.event(c, user.id, wasMove ? 'moved' : 'slot_chosen', appt.id, { to: appt.startsAt, ...(auto ? { auto: true } : {}) });
+    if (quiet) return;
     const connected = this.isConnected(c, user.id);
     const label = formatSlot(when);
     this.emit(c, user.id, {
@@ -913,8 +1085,9 @@ export class Engine {
       const a = c.db.appointments[p.apptId];
       if (a && a.status === 'proposed') a.status = 'skipped';
     }
+    for (const a of Object.values(c.db.appointments)) if (a.userId === userId && a.status === 'proposed' && a.planId) a.status = 'skipped';
     user.pending = null;
-    this.clearButtons(c, userId, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week');
+    this.clearButtons(c, userId, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week' || a.startsWith('plan:'));
     this.event(c, userId, 'week_skipped');
     this.emit(c, userId, { text: T.weekSkipped() });
   }
@@ -946,6 +1119,12 @@ export class Engine {
     }
     if (this.handleOnboardingAction(c, user, action)) return;
     switch (action) {
+      case 'plan:ok':
+        this.confirmPlan(c, user.id);
+        return;
+      case 'plan:edit':
+        this.emit(c, user.id, { text: T.planEdit() });
+        return;
       case 'del:ask':
         this.emit(c, user.id, {
           text: T.deleteAsk(),
@@ -1124,7 +1303,7 @@ export class Engine {
     }
     if (user.pending?.kind === 'onboarding') {
       // Contesta con un número o vuelve a mostrar la pregunta.
-      const n = /\b([123])\b/.exec(text)?.[1];
+      const n = /\b([1-7])\b/.exec(text)?.[1];
       if (n && user.pending.step === 'perWeek') {
         this.handleOnboardingAction(c, user, `pw:${n}`);
         return;
@@ -1133,17 +1312,20 @@ export class Engine {
         this.finishOnboarding(c, user);
         return;
       }
-      this.emit(c, user.id, { text: T.askPerWeek(), buttons: [1, 2, 3].map((k) => ({ label: T.btn.perWeek(k), action: `pw:${k}` })) });
+      this.emit(c, user.id, { text: T.askPerWeek(), buttons: [1, 2, 3, 4, 5, 6, 7].map((k) => ({ label: String(k), action: `pw:${k}` })) });
       return;
     }
 
     // Hora o día dicho en texto libre ("martes 20:30", "cámbiala para las 20:00"). No se re-agenda una pregunta
     // ("¿qué músculos trabajo el lunes?") ni los mensajes de otra intención.
     const p = user.pending;
+    if (p?.kind === 'plan' && (intent === 'unknown' || intent === 'move' || intent === 'other_hour' || intent === 'propose')) {
+      if (this.editPlan(c, user, text)) return;
+    }
     const asksQuestion = /\?|^\s*(qu[eé]|cu[aá]l(es)?|cu[aá]ndo|c[oó]mo|d[oó]nde|cu[aá]nto)\b/i.test(text);
     const placeable = intent === 'unknown' || intent === 'other_hour' || intent === 'move' || intent === 'propose' || intent === 'warmup';
     const waitingHour = p?.kind === 'other_hour';
-    const target = p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
+    const target = p && 'apptId' in p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
     if (placeable && target && (!asksQuestion || waitingHour)) {
       const lower = text.toLowerCase();
       // "No puedo a las 19:15": la hora mencionada es la que no sirve, salvo que proponga otra ("mejor el miércoles").
@@ -1156,11 +1338,15 @@ export class Engine {
       if (when && when.toISOString() !== target.startsAt) {
         if (!withinGymHours(user, when)) {
           // El gym está cerrado a esa hora: no se agenda; se explica y se proponen horas que sí calzan.
-          const gym = user.gymHours ?? { open: '05:30', close: '23:00' };
+          const gym = user.gymHours ?? { open: '06:00', close: '22:00' };
           this.startCapture(c, user.id, { describe: () => T.outsideGym(formatTime(when), gym.open, gym.close) });
           return;
         }
-        this.place(c, user, target, when, target.startsAt ? 'move' : 'user');
+        // Con varias sesiones en la semana, si pide una hora en un día que ya tiene sesión, es esa la que se mueve.
+        const sameDay = Object.values(c.db.appointments).find(
+          (a) => a.userId === user.id && a.startsAt && (a.status === 'confirmed' || a.status === 'reminded') && dateKey(localParts(new Date(a.startsAt))) === dateKey(localParts(when)),
+        );
+        this.place(c, user, sameDay ?? target, when, (sameDay ?? target).startsAt ? 'move' : 'user');
         if (intent === 'warmup' && !user.painPause) this.emit(c, user.id, { text: this.travelWarmupText(c, user, target) });
         return;
       }
@@ -1253,6 +1439,10 @@ export class Engine {
         }
       }
       // b. el silencio también agenda
+      if (user.pending?.kind === 'plan' && c.now.getTime() - new Date(user.pending.sentAt).getTime() >= this.config.defaultAfterMin * 60000) {
+        this.confirmPlan(c, user.id);
+        actions.push({ userId: user.id, action: 'plan_confirmed' });
+      }
       if (user.pending?.kind === 'capture') {
         const elapsed = c.now.getTime() - new Date(user.pending.sentAt).getTime();
         if (elapsed >= this.config.defaultAfterMin * 60000) {

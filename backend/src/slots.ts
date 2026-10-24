@@ -31,8 +31,8 @@ const minutesOf = (hhmm: string) => {
 /** Límites [desde, hasta] en minutos del día en que debe caber la sesión: ventana ∩ horario del gym. */
 function bounds(user: User): [number, number] {
   if (user.flexTimes) {
-    // Todo el horario del gym (por defecto 05:30–23:00): la ventana habitual pasa a ser solo una preferencia.
-    return [minutesOf(user.gymHours?.open ?? '05:30'), minutesOf(user.gymHours?.close ?? '23:00')];
+    // Todo el horario del gym (por defecto 06:00–22:00, todos los días): la ventana habitual pasa a ser solo una preferencia.
+    return [minutesOf(user.gymHours?.open ?? '06:00'), minutesOf(user.gymHours?.close ?? '22:00')];
   }
   let lo = minutesOf(user.window.start);
   let hi = minutesOf(user.window.end);
@@ -246,7 +246,7 @@ export function parseClock(text: string): { hour: number; minute: number } | nul
 /** Cláusula que explica el motivo ("debido a…", "porque…"): lo que dice no es la hora pedida. */
 /** ¿La sesión que parte en `when` cabe entera dentro del horario del gimnasio? Sin horario conocido, sí. */
 export function withinGymHours(user: User, when: Date): boolean {
-  const gym = user.gymHours ?? (user.flexTimes ? { open: '05:30', close: '23:00' } : null);
+  const gym = user.gymHours ?? (user.flexTimes ? { open: '06:00', close: '22:00' } : null);
   if (!gym) return true;
   const p = localParts(when);
   const m = p.hour * 60 + p.minute;

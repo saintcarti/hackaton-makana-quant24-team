@@ -145,7 +145,7 @@ export default function SessionSetup({
       const split = planChoice ?? draft.split;
       set({ mode, split: { ...split }, perWeek: split.sessions, sessionMin: planSessionMin ?? draft.sessionMin });
     } else {
-      set({ mode, perWeek: Math.min(3, Math.max(1, draft.perWeek)) });
+      set({ mode, perWeek: Math.min(7, Math.max(1, draft.perWeek)) });
     }
   };
 
@@ -212,7 +212,7 @@ export default function SessionSetup({
         </fieldset>
         {draft.mode === 'auto' ? (
           <fieldset className="span-2">
-            <legend>Veces por semana</legend>
+            <legend>Días por semana</legend>
             <div className="chips">
               {PER_WEEK_OPTIONS.map((n) => (
                 <button key={n} type="button" className="chip-btn" aria-pressed={draft.perWeek === n} onClick={() => set({ perWeek: n })}>

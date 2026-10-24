@@ -63,7 +63,7 @@ export function calendarWeek(db: DB, userId: string, weekOf: string) {
       };
     });
   const flex = !!db.users[userId]?.flexTimes;
-  return { weekOf, days, hourRange: flex ? { from: '05:00', to: '23:30' } : { from: '18:00', to: '21:30' }, blocks };
+  return { weekOf, days, hourRange: flex ? { from: '05:30', to: '22:30' } : { from: '18:00', to: '21:30' }, blocks };
 }
 
 export function userSummary(db: DB, user: User, now: Date) {
