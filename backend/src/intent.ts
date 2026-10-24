@@ -1,7 +1,8 @@
-export type Intent = 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
+export type Intent = 'warmup' | 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
 const RESUME = /\b(ya|lo)\b.*\b(convers|habl|consult|vi|fui|revis)\w*\b.*\b(kinesi\w*|m[eé]dic\w*|deport[oó]log\w*|profesional)\b/;
+const WARMUP = /\b(calent\w*|trot\w*|caminando|caminar|a pie|estir\w*|movilidad|antes de (ir|llegar|entrenar)|camino al gym)\b/;
 const ROUTINE = /\b(rutinas?|ejercicios?|m[uú]sculos?|grupos? musculares?|qu[eé] (me )?toca|qu[eé] (voy a )?(entreno|entrenar[eé]?|trabajo|trabajar[eé]?|hago))\b/;
 const MOVE =
   /\b(mueve\w*|mover\w*|mu[eé]vela|muevela|cambia\w*|reagend\w*|re-agend\w*|pasa(la|lo|r)? (para|a)|hoy no (puedo|alcanzo|voy)|no podr[eé] ir|no puedo|no alcanzo|se alarg[oó]|se alargaron?|junta|reuni[oó]n|me quedo trabajando|otro d[ií]a|m[aá]s tarde)\b/;
@@ -20,6 +21,7 @@ export function classifyByRules(text: string): Intent {
   if (!t) return 'unknown';
   if (PAIN.test(t)) return 'pain';
   if (RESUME.test(t)) return 'resume';
+  if (WARMUP.test(t)) return 'warmup';
   if (ROUTINE.test(t)) return 'routine';
   if (CONNECT.test(t)) return 'connect';
   if (SKIP.test(t)) return 'skip_week';

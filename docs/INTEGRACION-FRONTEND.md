@@ -196,6 +196,10 @@ R4: si Camila menciona dolor, el agente deriva a un kinesiólogo o médico depor
 
 Con Google conectado el agente crea el evento y lo **mueve** (mismo evento) cuando la cita cambia; por eso no manda `.ics` ni el botón «Agregar a Google Calendar» (`attachment` ausente): importarlo a mano duplicaría el evento. Sin Google conectado sí va el `.ics` (con `SEQUENCE` para que una reimportación actualice). Lo «ocupado» sale de las reuniones reales del calendario sin contar las citas del propio agente. En cada `tick` (cron cada 5 min en hora real; `POST /jobs/tick` en el demo con reloj simulado), si una reunión nueva pisa una cita de los próximos 7 días, el agente la corre solo al siguiente hueco y avisa («Vi que tu calendario cambió… La corrí al…»); no cuenta como un MUEVE de ella y lo hace como máximo 2 veces por cita. Si no hay hueco cercano avisa una vez y pide día y hora. `POST /demo/reset` borra antes las citas del agente en Google para no dejar eventos huérfanos.
 
+### Proactividad: calentar en el camino y pausas activas
+
+Sin que ella pregunte, el agente propone movimiento en los tiempos muertos: (1) el recordatorio del día trae un tercer mensaje, «Para llegar con el cuerpo listo al gym», con caminata a paso ligero y, si hay 12+ min libres antes de la cita, trote suave al final (hasta 20 min en total, según lo que deje la reunión anterior del calendario); (2) en cada `tick`, si el día de la cita tiene un hueco de 10+ min entre dos reuniones (entre 09:00 y 19:00 y al menos 45 min antes de la cita), manda una sola pausa activa de 3 o 5 movimientos sin equipo. También responde cuando ella pregunta («¿qué me recomiendas para calentar?», «me iré caminando…»), y si la pregunta viene junto con la hora, agenda **y** contesta. Todo es texto de plantilla, sin cifras del cuerpo. R4: con pausa por dolor no se manda nada de esto.
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |

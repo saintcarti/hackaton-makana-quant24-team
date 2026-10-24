@@ -3,7 +3,7 @@ import { Intent, LlmParser, classifyByRules } from './intent.js';
 import { GoogleConfig, busyFromEvents, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
 import { autoDecide, type DayRoom } from './autoplan.js';
-import { buildRoutine } from './routine.js';
+import { buildBreak, buildRoutine, buildTravelWarmup } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
 import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
@@ -453,6 +453,20 @@ export class Engine {
     appt.durationMin = routine.minutes;
   }
 
+  /** Minutos libres antes de la cita: desde que termina la reunión anterior (máx. 3 h antes). Sin reuniones, se asume el tope. */
+  private freeBefore(c: Ctx, user: User, appt: Appointment): number {
+    const start = new Date(appt.startsAt!).getTime();
+    const prevEnd = this.busyFor(c, user.id)
+      .filter((b) => b.end <= start && b.end > start - 3 * 3600_000)
+      .reduce((m, b) => Math.max(m, b.end), 0);
+    return prevEnd ? Math.floor((start - prevEnd) / 60_000) : 20;
+  }
+
+  private travelWarmupText(c: Ctx, user: User, appt: Appointment | undefined): string {
+    const minutes = appt?.startsAt ? this.freeBefore(c, user, appt) : 20;
+    return T.travelWarmup(buildTravelWarmup(minutes));
+  }
+
   private routineText(appt: Appointment): string | undefined {
     if (!appt.routine) return undefined;
     return T.routine(appt.routine, appt.focus?.label);
@@ -596,6 +610,8 @@ export class Engine {
     });
     const routine = this.routineText(appt);
     if (routine) this.emit(c, userId, { text: routine });
+    const user = this.user(c, userId);
+    if (!user.painPause) this.emit(c, userId, { text: this.travelWarmupText(c, user, appt) });
     return appt;
   }
 
@@ -805,23 +821,24 @@ export class Engine {
     // ("¿qué músculos trabajo el lunes?") ni los mensajes de otra intención.
     const p = user.pending;
     const asksQuestion = /\?|^\s*(qu[eé]|cu[aá]l(es)?|cu[aá]ndo|c[oó]mo|d[oó]nde|cu[aá]nto)\b/i.test(text);
-    const placeable = intent === 'unknown' || intent === 'other_hour' || intent === 'move' || intent === 'propose';
+    const placeable = intent === 'unknown' || intent === 'other_hour' || intent === 'move' || intent === 'propose' || intent === 'warmup';
     const waitingHour = p?.kind === 'other_hour';
     const target = p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
-    if (placeable && target && (!asksQuestion || waitingHour)) {
+    if (placeable && target && (!asksQuestion || waitingHour || intent === 'warmup')) {
       const lower = text.toLowerCase();
       // "No puedo a las 19:15": la hora mencionada es la que no sirve, salvo que proponga otra ("mejor el miércoles").
       const cantGo = intent === 'move' && !waitingHour && /\bno (pueda|puedo|podr[eé]|alcanzo|voy)\b/.test(lower);
       const proposesOther = /\b(mejor|prefiero|podr[ií]a|pasa(la|lo|r)?|c[aá]mbial[ao]|mu[eé]vel[ao])\b|\bpara (el|las?)\b/.test(lower);
-      let when = cantGo && !proposesOther ? null : parseWhen(text, c.now, user, { requireExplicit: intent === 'move' && !waitingHour });
+      let when = cantGo && !proposesOther ? null : parseWhen(text, c.now, user, { requireExplicit: (intent === 'move' || intent === 'warmup') && !waitingHour });
       if (!when && this.deps.parser?.extractWhen && (waitingHour || intent === 'move' || intent === 'unknown') && /\d|ma[ñn]ana|hoy|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|noche|tarde|despu[eé]s/i.test(text)) {
         when = await this.guessWhen(c, user, text);
       }
       if (when && when.toISOString() !== target.startsAt) {
         this.place(c, user, target, when, target.startsAt ? 'move' : 'user');
+        if (intent === 'warmup' && !user.painPause) this.emit(c, user.id, { text: this.travelWarmupText(c, user, target) });
         return;
       }
-      if (waitingHour && intent !== 'move') {
+      if (waitingHour && intent !== 'move' && intent !== 'warmup') {
         this.emit(c, user.id, { text: T.otherHourUnclear() });
         return;
       }
@@ -849,6 +866,11 @@ export class Engine {
       case 'skip_week':
         this.skipWeek(c, user.id);
         return;
+      case 'warmup': {
+        const next = this.upcoming(c, user.id);
+        this.emit(c, user.id, { text: this.travelWarmupText(c, user, next) });
+        return;
+      }
       case 'routine': {
         // Si nombra un día ("el lunes"), responde por la cita de ese día; si no, por la próxima.
         const asked = WEEKDAY_NAMES.findIndex((re) => re.test(text.toLowerCase()));
@@ -930,6 +952,29 @@ export class Engine {
             this.emit(c, user.id, { text: T.autoNoSlot() });
             actions.push({ userId: user.id, action: 'conflict_notice', apptId: appt.id });
             continue;
+          }
+        }
+      }
+      // f. tiempo muerto: un hueco libre entre reuniones antes de la cita → una pausa activa (una vez por cita)
+      if ((appt.status === 'confirmed' || appt.status === 'reminded') && !appt.microSent && start > c.now.getTime()) {
+        const user = c.db.users[appt.userId];
+        if (user && !user.painPause && dateKey(localParts(new Date(start))) === dateKey(localParts(c.now))) {
+          const nowMs = c.now.getTime();
+          const blocks = this.busyFor(c, user.id)
+            .filter((b) => b.end > nowMs - 600_000 && b.start < start)
+            .sort((x, y) => x.start - y.start);
+          for (let i = 0; i < blocks.length - 1; i++) {
+            const gapStart = blocks[i]!.end;
+            const gapEnd = Math.min(blocks[i + 1]!.start, start - 45 * 60_000);
+            const gap = Math.floor((gapEnd - gapStart) / 60_000);
+            const hour = localParts(new Date(gapStart)).hour;
+            if (gap >= 10 && hour >= 9 && hour < 19 && nowMs >= gapStart && nowMs <= gapStart + 10 * 60_000) {
+              const moves = buildBreak(gap)!;
+              appt.microSent = true;
+              this.emit(c, user.id, { text: T.pausaActiva(gap, moves) });
+              actions.push({ userId: user.id, action: 'micro_break', apptId: appt.id });
+              break;
+            }
           }
         }
       }

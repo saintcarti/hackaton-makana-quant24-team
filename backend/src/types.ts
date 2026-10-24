@@ -77,6 +77,8 @@ export interface Appointment {
   autoShifts?: number;
   /** Ya avisó que choca con una reunión y no hay hueco cercano (un solo aviso). */
   conflictNoticed?: boolean;
+  /** Ya se mandó la pausa activa de ese día de gimnasio (una sola). */
+  microSent?: boolean;
   /** Foco de la sesión según el split de la usuaria (solo grupos, R4). Ausente sin split o mientras dure la pausa por dolor. */
   focus?: { dayTypeId: string; label: string; groups: string[] };
   /** Rutina armada con el tiempo libre real de ese día. Ausente con pausa por dolor (R4) o si el tiempo es muy corto. */
