@@ -12,7 +12,7 @@ import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
 import type { AppointmentView, CalendarWeek, GoogleStatus, Summary, User } from './lib/api-types';
 import { allDaySegments, toSegments } from './lib/calendar';
 import { fitWeek, pickSuggestions, type FitEntry, type MovedFrom, type TakenInterval } from './lib/fit';
-import { addDaysISO, santiagoParts, santiagoToDate } from './lib/format';
+import { addDaysISO, mondayOf, santiagoParts, santiagoToDate } from './lib/format';
 import {
   fetchEvents,
   googleClientId,
@@ -41,6 +41,7 @@ import {
   type SplitChoice,
   type SplitPlan,
 } from './lib/splits';
+import { schedulingWeek } from './lib/weekTarget';
 import {
   alternativeChoice,
   clearSplitState,
@@ -267,6 +268,15 @@ export default function App() {
     prevChatError.current = chatError;
   }, [chatError, bump]);
 
+  // La semana que el agente planifica (lib/weekTarget.ts): la grilla parte ahí cuando no hay una cita que mostrar, y es
+  // la única que se sincroniza con el backend. Solo para la usuaria de la demo; el valor cambia a lo sumo una vez al día.
+  const schedWeekOf = useMemo(() => {
+    if (!now || !userId || userId !== demoUserId) return undefined;
+    const u = users.find((x) => x.id === userId) ?? null;
+    const { prefs } = loadPrefs(u);
+    return schedulingWeek(santiagoParts(new Date(now)), prefs);
+  }, [now, userId, demoUserId, users, prefsVersion]);
+
   // Datos de la vista: semana, resumen e historial. Se refrescan con cada mensaje o acción de demo.
   useEffect(() => {
     if (!userId) return;
@@ -275,8 +285,9 @@ export default function App() {
     (async () => {
       try {
         const [s, a, meta] = await Promise.all([api.summary(userId), api.appointments(userId), api.meta()]);
-        // Sin semana elegida, la grilla sigue a la próxima cita (el domingo, eso es la semana que viene).
-        const c = await api.calendar(userId, weekOf ?? s.nextAppointment?.weekOf ?? undefined);
+        // Sin semana elegida, la grilla sigue a la próxima cita (el domingo, eso es la semana que viene); sin cita,
+        // a la semana que el agente está planificando.
+        const c = await api.calendar(userId, weekOf ?? s.nextAppointment?.weekOf ?? schedWeekOf ?? undefined);
         if (!alive) return;
         setCal(c);
         setSummary(s);
@@ -297,7 +308,7 @@ export default function App() {
       alive = false;
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [userId, weekOf, refreshKey, messages.length, showToast, applyServerClock]);
+  }, [userId, weekOf, schedWeekOf, refreshKey, messages.length, showToast, applyServerClock]);
 
   const isDemoUser = userId !== null && userId === demoUserId;
 
@@ -539,8 +550,10 @@ export default function App() {
   const syncedRef = useRef<string | null>(null);
   useEffect(() => {
     const d = fit.decision;
-    // Una semana sin días útiles (p. ej. domingo en la noche) no decide nada: no pisa el split que tiene el backend.
-    if (!userId || !current || !prefsConfigured || !d || !d.plan.sessions.length || fit.locked || !isCurrentWeek) return;
+    // Una semana sin días útiles no decide nada: no pisa el split que tiene el backend. Solo se sincroniza la semana que
+    // el agente está planificando (la que agendará la captura del domingo), no cualquiera que ella esté mirando.
+    if (!userId || !current || !prefsConfigured || !d || !d.plan.sessions.length || fit.locked) return;
+    if (!cal || cal.weekOf !== schedWeekOf) return;
     if (prefsState?.prefs.mode !== 'auto') return;
     const same = current.split?.id === d.choice.id && current.split?.sessions === d.choice.sessions && current.sessionMin === d.sessionMin;
     const key = `${userId}:${d.choice.id}:${d.choice.sessions}:${d.sessionMin}`;
@@ -555,7 +568,7 @@ export default function App() {
       .catch(() => {
         /* Backend sin split (viejo o local): la web igual muestra la decisión; el agente sigue con lo que tenía. */
       });
-  }, [fit.decision, fit.locked, isCurrentWeek, currentSignature, prefsConfigured, userId]);
+  }, [fit.decision, fit.locked, cal?.weekOf, schedWeekOf, currentSignature, prefsConfigured, userId]);
 
   // R4: después de la derivación por dolor el plan no asigna focos hasta que ella diga que lo conversó con un profesional.
   // Manda el backend (`user.painPause`); el chat y lo recordado acá cubren backends que todavía no lo tienen.
@@ -637,6 +650,8 @@ export default function App() {
   function afterReset() {
     resetChat();
     setWeekOf(null);
+    // La usuaria nueva no tiene split: la decisión se vuelve a sincronizar aunque sea la misma de antes del reset.
+    syncedRef.current = null;
     if (demoUserId) {
       clearPrefsLocal(demoUserId);
       clearSplitState(demoUserId);
@@ -707,7 +722,9 @@ export default function App() {
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');
   const offline = apiDown || isOffline(chatErrorStatus);
   const notPrepared = !offline && chatErrorStatus === 404 && isDemoUser;
-  const weekTitle = !cal ? '' : isCurrentWeek ? 'esta semana' : `semana del ${Number(cal.weekOf.slice(8))}`;
+  // «Esta semana» es la del reloj; la que el agente planifica puede ser la que viene (viernes en la noche, fin de semana).
+  const currentMonday = now ? mondayOf(santiagoParts(new Date(now)).date) : null;
+  const weekTitle = !cal ? '' : cal.weekOf === currentMonday ? 'esta semana' : `semana del ${Number(cal.weekOf.slice(8))}`;
   const shownNote = prefsNote ?? (prefsState?.source === 'local' ? LOCAL_PREFS_NOTE : null);
 
   return (

@@ -243,7 +243,7 @@ export default function WeekCalendar({
                   <div
                     key={s.key}
                     className="ev ev-suggest"
-                    style={{ top: y(s.startMin), height: Math.max(36, y(s.endMin) - y(s.startMin)) }}
+                    style={{ top: y(s.startMin), height: Math.max(46, y(s.endMin) - y(s.startMin)) }}
                     title={`${s.label} · ${fmtMin(s.startMin)}–${fmtMin(s.endMin)}`}
                   >
                     <div className="t">{fmtMin(s.startMin)}</div>

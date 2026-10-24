@@ -14,7 +14,7 @@ if (!esbuildDir) throw new Error('No encontré esbuild en node_modules/.pnpm: co
 const esbuild = createRequire(import.meta.url)(join(pnpmDir, esbuildDir, 'node_modules', 'esbuild'));
 
 let failed = false;
-for (const name of ['splits-test', 'autoplan-test']) {
+for (const name of ['splits-test', 'autoplan-test', 'weektarget-test']) {
   const out = join(here, '.out', `${name}.mjs`);
   esbuild.buildSync({ entryPoints: [join(here, `${name}.ts`)], bundle: true, platform: 'node', format: 'esm', outfile: out, logLevel: 'error' });
   console.log(`\n— ${name} —`);
