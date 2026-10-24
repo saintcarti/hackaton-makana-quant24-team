@@ -1271,7 +1271,9 @@ export class Engine {
     this.emit(c, user.id, { text: T.pain() });
   }
 
-  private async handleText(c: Ctx, user: User, text: string) {
+  private async handleText(c: Ctx, user: User, rawText: string) {
+    // Las reglas leen el texto sin tildes («miércoles» = «miercoles»): así no dependen de cómo venga escrita la vocal.
+    const text = rawText.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     let intent: Intent = classifyByRules(text);
 
     if (intent === 'resume') {
@@ -1291,7 +1293,7 @@ export class Engine {
     }
 
     if (user.pending?.kind === 'onboarding' && user.pending.step === 'name') {
-      const name = this.setName(c, user.id, text);
+      const name = this.setName(c, user.id, rawText);
       if (!name) {
         this.emit(c, user.id, { text: T.nameInvalid() });
         return;
