@@ -53,9 +53,37 @@ export const T = {
       'Descansa cerca de 1 min entre series y elige un peso con el que mantengas buena técnica. Si algo te molesta, para y consúltalo con un kinesiólogo o un médico deportólogo.',
     ].join('\n'),
   focusOnly: (focus: string) => `Ese día toca ${focus}. Todavía no tengo una rutina armada para ese día.`,
-  travelWarmup: (w: { walkMin: number; jogMin: number; mobilityMin: number }) =>
+  advice: (a: {
+    meeting?: { day: string; start: string; end: string; mayRunLong: boolean };
+    commute?: { walkMin: number; jogMin: number; mixed: number };
+    sameDay: boolean;
+    firstOption: string;
+    window: { start: string; end: string };
+  }) =>
+    [
+      ...(a.meeting
+        ? [
+            `Tu reunión del ${a.meeting.day} parte a las ${a.meeting.start}${a.meeting.mayRunLong ? ` y, como puede alargarse, la cuento hasta las ${a.meeting.end}` : ''}.`,
+          ]
+        : []),
+      ...(a.commute
+        ? [`Al gym llegas en ${a.commute.walkMin} min caminando, ${a.commute.jogMin} si vas trotando; mezclando, unos ${a.commute.mixed}.`]
+        : []),
+      a.meeting
+        ? a.sameDay
+          ? `Ese día lo más realista es entrenar a las ${a.firstOption}.`
+          : `Ese día no calza con tu ventana de ${a.window.start} a ${a.window.end}, así que te propongo otros días.`
+        : 'Con tu calendario, estas son las horas que mejor calzan.',
+      a.meeting ? 'Si la reunión dura más o menos, dime y lo ajusto.' : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  scheduleHeader: () => 'Esto es lo que veo en tu calendario los próximos 7 días:',
+  scheduleEmpty: () => 'No veo nada agendado en tu calendario los próximos 7 días.',
+  travelWarmup: (w: { walkMin: number; jogMin: number; mobilityMin: number; leaveMin?: number }) =>
     [
       'Para llegar con el cuerpo listo al gym:',
+      ...(w.leaveMin ? [`Sal ${w.leaveMin} min antes de tu cita.`] : []),
       `• Camina a paso ligero ${w.walkMin} min`,
       ...(w.jogMin > 0 ? [`• Trota suave los últimos ${w.jogMin} min antes de llegar`] : []),
       `• Al llegar: ${w.mobilityMin} min de movilidad (tu rutina parte con el calentamiento)`,

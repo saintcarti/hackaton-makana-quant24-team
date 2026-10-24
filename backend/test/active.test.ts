@@ -88,3 +88,47 @@ describe('pausa activa en un tiempo muerto', () => {
     expect(second.actions.some((a: any) => a.action === 'micro_break')).toBe(false);
   });
 });
+
+describe('recomendar hora con lo que ella cuenta (reunión que se alarga + trayecto)', () => {
+  const text =
+    'que horas tenemos agendadas actualmente en mi calendario? tengo una reunion el jueves a las 7 de la tarde lo mas probable es que se alargue, que hora me recomiendas para ir al gym? el gym me queda a 20 minutos caminando y si troto seran unos 15 , que me recomiendas?';
+
+  it('no agenda a la hora de la reunión: cuenta el calendario y propone opciones que calzan', async () => {
+    const { call, say } = await setup('2026-10-23T20:27:00.000Z');
+    await call(`${u}/weekly-capture`); // la captura queda abierta, como en el chat real
+    const r = await say(text);
+    expect(r.some((m) => /^Listo:/.test(m.text))).toBe(false);
+    const advice = r.at(-1);
+    expect(advice.text).toMatch(/Tu reunión del jueves 29 parte a las 19:00/);
+    expect(advice.text).toMatch(/la cuento hasta las 20:30/);
+    expect(advice.text).toMatch(/20 min caminando, 15 si vas trotando/);
+    expect(advice.buttons.some((b: any) => b.action.startsWith('slot:'))).toBe(true);
+    // ninguna opción cae en el jueves de la reunión
+    for (const b of advice.buttons.filter((x: any) => x.action.startsWith('slot:'))) {
+      expect(b.label).not.toMatch(/jueves 29/);
+    }
+    const me = (await call(u, {}, 'GET')).user;
+    expect(me.commute).toEqual({ walkMin: 20, jogMin: 15 });
+    const appts = (await call(`${u}/appointments`, {}, 'GET')).appointments;
+    expect(appts.at(-1).status).toBe('proposed');
+  });
+
+  it('el calentamiento usa su trayecto: sale con anticipación, camina y trota un tramo', async () => {
+    const { call, say } = await setup('2026-10-25T23:00:00.000Z');
+    await say(text);
+    const cap = await call(`${u}/weekly-capture`);
+    await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action });
+    await call('/api/demo/clock', { preset: 'monday-1830' });
+    const rem = await call(`${u}/reminder`);
+    const tip = rem.replies.find((m: any) => /Para llegar con el cuerpo listo/.test(m.text));
+    expect(tip.text).toMatch(/Sal 19 min antes de tu cita/);
+    expect(tip.text).toMatch(/Camina a paso ligero 14 min/);
+    expect(tip.text).toMatch(/Trota suave los últimos 5 min/);
+  });
+
+  it('"agéndame el martes" no se confunde con preguntar por el calendario', async () => {
+    const { say } = await setup('2026-10-23T20:27:00.000Z');
+    const r = await say('quiero que quede agendada la cita el martes a las 20:30');
+    expect(r[0].text).not.toMatch(/Tu reunión|veo en tu calendario/);
+  });
+});
