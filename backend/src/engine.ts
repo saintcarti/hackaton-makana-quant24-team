@@ -1,6 +1,6 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
-import { GoogleConfig, busyFromEvents, listEvents, upsertEvent, withToken } from './google.js';
+import { GoogleConfig, busyFromEvents, deleteEvent, listEvents, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
 import { autoDecide, type DayRoom } from './autoplan.js';
 import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
@@ -59,6 +59,8 @@ export interface Ctx {
   outbox: Message[];
   /** Citas a sincronizar con Google Calendar al final de la operación. */
   ops: Set<string>;
+  /** Eventos de Google que hay que borrar (citas reemplazadas por una nueva de la misma semana). */
+  drops: Array<{ userId: string; eventId: string }>;
   /** Bloques ocupados del calendario real por usuaria (precargados al inicio de `run`). */
   busy: Map<string, Busy[]>;
 }
@@ -97,7 +99,7 @@ export class Engine {
   run<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
     const job = this.queue.then(async () => {
       const db = await this.deps.store.load();
-      const c: Ctx = { db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), busy: new Map() };
+      const c: Ctx = { db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], busy: new Map() };
       await this.loadBusy(c);
       const result = await fn(c);
       await this.syncCalendar(c);
@@ -113,7 +115,7 @@ export class Engine {
   read<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
     const job = this.queue.then(async () => {
       const db = await this.deps.store.load();
-      return fn({ db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), busy: new Map() });
+      return fn({ db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], busy: new Map() });
     });
     this.queue = job.catch(() => undefined);
     return job;
@@ -290,7 +292,17 @@ export class Engine {
   /** Crea/mueve en Google Calendar las citas tocadas por esta operación (mejor esfuerzo: nunca rompe el flujo). */
   private async syncCalendar(c: Ctx) {
     const g = this.google;
-    if (!g || c.ops.size === 0) return;
+    if (!g || (c.ops.size === 0 && c.drops.length === 0)) return;
+    for (const d of c.drops) {
+      const link = c.db.google?.[d.userId];
+      if (!link) continue;
+      try {
+        await withToken(g, link, c.now.getTime(), (t) => deleteEvent(t, d.eventId));
+        link.busyCache = undefined;
+      } catch (err) {
+        console.warn(JSON.stringify({ evt: 'gcal_delete_error', userId: d.userId, message: (err as Error).message }));
+      }
+    }
     for (const id of c.ops) {
       const appt = c.db.appointments[id];
       const link = appt && c.db.google?.[appt.userId];
@@ -525,6 +537,20 @@ export class Engine {
     for (const a of upcoming) this.assignFocus(c, user, a);
   }
 
+  /**
+   * El agente agenda una cita por semana: si ella elige una nueva y ya tenía otra vigente esa semana (por ejemplo
+   * empezó de nuevo con /start), la anterior se reemplaza y se borra su evento de Google, para que no queden dos.
+   */
+  private supersede(c: Ctx, user: User, appt: Appointment) {
+    for (const old of Object.values(c.db.appointments)) {
+      if (old.id === appt.id || old.userId !== user.id || old.weekOf !== appt.weekOf) continue;
+      if (old.status !== 'confirmed' && old.status !== 'reminded') continue;
+      if (!old.startsAt || new Date(old.startsAt).getTime() <= c.now.getTime()) continue;
+      if (old.eventId) c.drops.push({ userId: user.id, eventId: old.eventId });
+      delete c.db.appointments[old.id];
+    }
+  }
+
   /** Confirma o mueve una cita a una hora concreta. */
   private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source'], auto?: { from: Date }) {
     const wasMove = appt.startsAt != null && appt.startsAt !== when.toISOString();
@@ -533,6 +559,7 @@ export class Engine {
     appt.status = 'confirmed';
     appt.source = source;
     appt.weekOf = mondayOf(when);
+    if (!wasMove) this.supersede(c, user, appt);
     appt.conflictNoticed = undefined;
     if (auto) appt.autoShifts = (appt.autoShifts ?? 0) + 1;
     this.assignFocus(c, user, appt);
@@ -588,6 +615,7 @@ export class Engine {
     appt.status = 'confirmed';
     appt.source = 'default';
     appt.weekOf = mondayOf(chosen);
+    this.supersede(c, user, appt);
     this.assignFocus(c, user, appt);
     user.pending = null;
     c.ops.add(appt.id);

@@ -218,6 +218,12 @@ export async function clearMarkedEvents(token: string, prop: 'laCitaDemo' | 'laC
 
 export const clearDemoEvents = (token: string) => clearMarkedEvents(token, 'laCitaDemo');
 
+/** Borra un evento (ya borrado o inexistente cuenta como hecho). */
+export async function deleteEvent(token: string, eventId: string): Promise<void> {
+  const r = await api(token, 'DELETE', `/calendars/primary/events/${encodeURIComponent(eventId)}`);
+  if (![200, 204, 404, 410].includes(r.status)) throw new Error(`Calendar DELETE ${r.status}`);
+}
+
 /**
  * Bloques ocupados reales: las reuniones del calendario, SIN las citas que creó el agente (si no, la propia cita
  * contaría como ocupada y al mover o calcular el hueco chocaría consigo misma). Ignora cancelados, "disponible" y
@@ -237,11 +243,12 @@ const AGENT_TITLES = new Set(['Tu cita contigo · gogym', 'La Cita contigo']);
  * Borra las citas del agente del calendario: las marcadas por él y las que quedaron sueltas porque alguien importó el
  * .ics a mano (mismo título, sin marca). Las reuniones de demo y las reales no se tocan.
  */
-export async function clearAppointmentEvents(token: string, nowMs = Date.now()): Promise<number> {
+export async function clearAppointmentEvents(token: string, nowMs = Date.now(), keepIds: Set<string> = new Set()): Promise<number> {
   const events = await listEvents(token, nowMs - 60 * 86400_000, nowMs + 120 * 86400_000);
   let deleted = 0;
   for (const ev of events as any[]) {
     if (!ev.isLaCita && !AGENT_TITLES.has(ev.title)) continue;
+    if (keepIds.has(ev.id)) continue;
     const d = await api(token, 'DELETE', `/calendars/primary/events/${encodeURIComponent(ev.id)}`);
     if (d.status === 204 || d.status === 200) deleted += 1;
   }

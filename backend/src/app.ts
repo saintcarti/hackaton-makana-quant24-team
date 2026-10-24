@@ -475,13 +475,16 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
   app.post('/api/google/appointments/clear', requireAdmin, async (c) => {
     const g = engine.google;
     if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
-    const { userId } = z.object({ userId: z.string() }).parse(await c.req.json());
+    const { userId, keepLinked } = z.object({ userId: z.string(), keepLinked: z.boolean().default(false) }).parse(await c.req.json());
     const out = await engine.run(async (x) => {
       const link = x.db.google?.[userId];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
-      const deleted = await withToken(g, link, x.now.getTime(), (t) => clearAppointmentEvents(t, x.now.getTime()));
+      // keepLinked: solo borra los huérfanos (eventos que ninguna cita vigente reconoce) y deja los de las citas actuales.
+      const keep = new Set<string>();
+      if (keepLinked) for (const a of Object.values(x.db.appointments)) if (a.userId === userId && a.eventId && a.status !== 'lapsed') keep.add(a.eventId);
+      const deleted = await withToken(g, link, x.now.getTime(), (t) => clearAppointmentEvents(t, x.now.getTime(), keep));
       link.busyCache = undefined;
-      for (const a of Object.values(x.db.appointments)) if (a.userId === userId) a.eventId = undefined;
+      if (!keepLinked) for (const a of Object.values(x.db.appointments)) if (a.userId === userId) a.eventId = undefined;
       return { deleted };
     });
     return c.json(out);
