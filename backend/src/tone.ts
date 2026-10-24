@@ -35,6 +35,8 @@ export function toneViolations(text: string): string[] {
 export const T = {
   capture: (name: string, minutes = 40) =>
     `Hola, ${name}. Antes de que parta la semana: ¿cuándo te queda mejor tu cita contigo? Son ${minutes} minutos como máximo, y armo tu rutina según el tiempo que tengas libre ese día.`,
+  captureFlex: (name: string, minutes = 40) =>
+    `Hola, ${name}. Miré tu calendario y encontré estos huecos para tu cita contigo (hasta ${minutes} minutos). ¿Cuál te acomoda? Armo tu rutina según el tiempo que tengas libre ese día y, si una reunión se alarga, la corro sola.`,
   slotChosen: (label: string, venue: string) => `Listo: ${label}, ${venue}. Te dejo la cita para tu calendario.`,
   askOtherHour: () => 'Dime día y hora, por ejemplo "martes 20:30", y la dejo agendada.',
   otherHourUnclear: () => 'No alcancé a entender la hora. Puedes escribir algo como "miércoles 20:00".',

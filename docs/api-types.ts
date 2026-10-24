@@ -53,6 +53,8 @@ export interface User {
   days?: number[];
   /** El agente elige split y duración cada semana con el calendario (por defecto sí, mientras exista `perWeek`). `false` = modo manual. */
   autoPlan?: boolean;
+  /** Busca hueco en todo el horario del gym (`gymHours`, por defecto 05:30–23:00) y no solo en `window`. Por defecto true. */
+  flexTimes?: boolean;
   /** Cuánto le toma llegar al gym, según lo que ella contó (minutos caminando y trotando). */
   commute?: { walkMin: number; jogMin: number };
   /** Split elegido; ids: fullbody | upper-lower | ppl | torso-piernas-brazos | cinco-dias. Se cambia con PATCH /users/:id/preferences { split }. */

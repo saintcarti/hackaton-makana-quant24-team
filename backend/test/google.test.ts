@@ -100,7 +100,9 @@ describe('sincronización con Google Calendar', () => {
     const { engine } = await setup([{ start: mon.toISOString(), end: zonedToUtc(2026, 10, 26, 19, 30).toISOString() }]);
     await engine.run((c) => engine.connectGoogle(c, 'u1', { ...link }));
     const appt = await engine.run((c) => engine.startCapture(c, 'u1'));
-    expect(appt.options[0]).toBe(zonedToUtc(2026, 10, 26, 19, 45).toISOString());
+    // con el calendario cargado reparte el día: un hueco al almuerzo y otro después del trabajo (19:30 + 10 min de margen)
+    expect(appt.options).toContain(zonedToUtc(2026, 10, 26, 19, 45).toISOString());
+    expect(appt.options.some((o) => new Date(o).getTime() < mon.getTime())).toBe(true); // el de antes de la reunión de las 17:00
   });
 
   it('si Google falla, el flujo sigue y la cita queda agendada', async () => {
@@ -231,7 +233,7 @@ describe('un solo evento por cita y corrimiento automático', () => {
     });
     await engine.run((c) => engine.tick(c));
     const stored = await engine.read((c) => c.db.appointments[appt.id]!);
-    expect(stored.startsAt).toBe(zonedToUtc(2026, 10, 26, 20, 15).toISOString());
+    expect(stored.startsAt).toBe(zonedToUtc(2026, 10, 26, 20, 30).toISOString()); // fin de la reunión 20:10 + 10 min de margen
     expect(stored.eventId).toBe('ev1');
     expect(calls.filter((x) => x.method === 'POST' && x.url.endsWith('/events'))).toHaveLength(1);
     expect(calls.filter((x) => x.method === 'PATCH')).toHaveLength(1);
