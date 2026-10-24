@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
 import { T } from './tone.js';
+import { ALIAS, checkPassword, hashPassword } from './auth.js';
 import { accessToken, withToken, authUrl, clearAppointmentEvents, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { isValidChoice } from './splits.js';
@@ -78,7 +79,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
   };
   const canSee = async (c: any, userId: string, channel: string | undefined) => {
     if (!opts.sessionSecret) return true;
-    if (channel !== 'telegram') return true;
+    if (channel === undefined || channel === 'sim') return true;
     return isAdmin(c) || (await sessionUser(c)) === userId;
   };
   app.use('/api/users/:id', async (c, next) => {
@@ -101,6 +102,71 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     if (!userId) throw new DomainError('invalid_code', 'Código inválido o vencido. Pídelo de nuevo con /web en Telegram.', 401);
     const token = await signState(opts.sessionSecret, `session:${userId}`, 7 * 86400_000);
     return c.json({ token, userId });
+  });
+
+  // ───────────── cuentas de la web ─────────────
+  const issueSession = async (userId: string) => signState(opts.sessionSecret!, `session:${userId}`, 7 * 86400_000);
+  const creds = z.object({
+    alias: z.string().trim().toLowerCase().regex(ALIAS, 'El alias tiene 3 a 24 caracteres: letras, números, punto, guion o guion bajo'),
+    password: z.string().min(8, 'La contraseña tiene al menos 8 caracteres').max(72),
+  });
+
+  app.post('/api/auth/register', async (c) => {
+    if (!opts.sessionSecret) throw new DomainError('auth_disabled', 'Las cuentas no están configuradas', 503);
+    const body = creds.extend({ invite: z.string().optional() }).parse(await c.req.json().catch(() => ({})));
+    if (opts.inviteCode && body.invite?.trim() !== opts.inviteCode) {
+      throw new DomainError('invite_required', 'Necesitas un código de invitación válido (beta cerrada).', 403);
+    }
+    const pw = await hashPassword(body.password);
+    const out = await engine.run((x) => {
+      const accounts = (x.db.accounts ??= {});
+      if (accounts[body.alias]) throw new DomainError('alias_taken', 'Ese alias ya existe. Elige otro o entra con tu contraseña.', 409);
+      const user = engine.createUser(x, { id: `w_${body.alias}`, name: body.alias, channel: { type: 'web' }, synthetic: true });
+      accounts[body.alias] = { userId: user.id, ...pw, createdAt: x.now.toISOString() };
+      engine.startOnboarding(x, user.id);
+      return { userId: user.id };
+    });
+    return c.json({ token: await issueSession(out.userId), userId: out.userId, alias: body.alias }, 201);
+  });
+
+  app.post('/api/auth/login', async (c) => {
+    if (!opts.sessionSecret) throw new DomainError('auth_disabled', 'Las cuentas no están configuradas', 503);
+    const body = creds.parse(await c.req.json().catch(() => ({})));
+    const out = await engine.run(async (x) => {
+      const now = Date.now();
+      const fails = ((x.db.authFailures ??= {})[body.alias] ??= []).filter((t) => now - t < 10 * 60_000);
+      x.db.authFailures[body.alias] = fails;
+      if (fails.length >= 5) return { fail: 'limit' as const };
+      const acc = x.db.accounts?.[body.alias];
+      // Misma respuesta si el alias no existe o la contraseña es incorrecta. El fallo se guarda (no se lanza dentro: no se perdería).
+      if (!acc || !(await checkPassword(body.password, acc))) {
+        fails.push(now);
+        return { fail: 'invalid' as const };
+      }
+      delete x.db.authFailures[body.alias];
+      // Tras un reset de la demo la persona sigue teniendo cuenta: se le vuelve a abrir su espacio.
+      if (!x.db.users[acc.userId]) {
+        engine.createUser(x, { id: acc.userId, name: body.alias, channel: { type: 'web' }, synthetic: true });
+        engine.startOnboarding(x, acc.userId);
+      }
+      return { userId: acc.userId };
+    });
+    if ('fail' in out) {
+      if (out.fail === 'limit') throw new DomainError('too_many_attempts', 'Demasiados intentos. Espera unos minutos.', 429);
+      throw new DomainError('invalid_credentials', 'Alias o contraseña incorrectos.', 401);
+    }
+    return c.json({ token: await issueSession(out.userId), userId: out.userId, alias: body.alias });
+  });
+
+  // Borrar mi cuenta (R2: cada persona puede eliminar todo lo suyo).
+  app.post('/api/auth/delete', async (c) => {
+    const me = await sessionUser(c);
+    if (!me) return c.json({ error: { code: 'unauthorized', message: 'Entra primero' } }, 401);
+    await engine.run(async (x) => {
+      for (const [alias, acc] of Object.entries(x.db.accounts ?? {})) if (acc.userId === me) delete x.db.accounts![alias];
+      if (x.db.users[me]) await engine.deleteUser(x, me);
+    });
+    return c.json({ ok: true });
   });
 
   // ───────────── meta ─────────────
@@ -139,8 +205,10 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
         }
       }
       const allowed = x.db.allowedChats;
+      const accounts = x.db.accounts;
       x.db = freshDB(now, body.seed);
       if (allowed) x.db.allowedChats = allowed;
+      if (accounts) x.db.accounts = accounts;
       // Las conexiones de Google sobreviven al reset (se reconectaría con una autorización manual); el caché de ocupación no.
       if (body.keepGoogle) x.db.google = Object.fromEntries(Object.entries(links).map(([id, l]) => [id, { ...l, busyCache: undefined }]));
       x.db.clockOffsetMs = body.now ? now.getTime() - Date.now() : 0;
@@ -247,7 +315,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const all = await engine.read((x) => Object.values(x.db.users));
     if (!opts.sessionSecret || isAdmin(c)) return c.json({ users: all });
     const me = await sessionUser(c);
-    return c.json({ users: all.filter((u) => u.channel.type !== 'telegram' || u.id === me) });
+    return c.json({ users: all.filter((u) => u.channel.type === 'sim' || u.id === me) });
   });
 
   app.get('/api/users/:id', async (c) =>

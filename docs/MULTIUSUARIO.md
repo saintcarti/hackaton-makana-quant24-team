@@ -9,6 +9,10 @@ El producto ya no es solo para Camila: cada persona tiene su propia cuenta, su p
 3. Le ofrece **conectar su Google Calendar** (OAuth; solo lee horas ocupadas y crea sus citas). Se puede saltar con «Más tarde».
 4. Desde ahí el agente trabaja con **su** día: busca huecos antes del trabajo, al almuerzo o después, arma la rutina con el tiempo real, corre la cita sola si una reunión se alarga y, si pasan dos citas sin hacerse, le escribe una vez para retomar «suave».
 
+## Cuenta en la web
+
+La pantalla de entrada tiene **Crear cuenta / Ya tengo cuenta**: alias + contraseña (mínimo 8) + código de invitación. Sin correo ni nombre real (R2); la contraseña se guarda con PBKDF2-SHA256 y sal propia. Al crear la cuenta, el chat de la web hace la misma bienvenida que Telegram (cuántas veces por semana, conectar calendario). Cinco contraseñas erradas bloquean ese alias 10 minutos. «Borrar mi cuenta» (arriba a la derecha) elimina cuenta, citas, chat, el permiso del calendario y los eventos del agente. Rutas: `POST /api/auth/register`, `/auth/login`, `/auth/delete`, `/auth/exchange` (código de Telegram); todas devuelven o usan una sesión `Authorization: Bearer …` de 7 días. «Preparar a Camila» no borra las cuentas: al volver a entrar, se les reabre su espacio.
+
 ## Comandos del bot
 
 | Comando | Qué hace |

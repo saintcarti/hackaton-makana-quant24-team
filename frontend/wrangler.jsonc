@@ -1,0 +1,7 @@
+{
+  // Espejo de la web en Cloudflare (mismo build que Vercel): sirve frontend/dist como sitio estático.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gogym-web",
+  "compatibility_date": "2026-10-19",
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" }
+}

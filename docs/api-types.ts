@@ -63,7 +63,7 @@ export interface User {
   split?: { id: string; sessions: number };
   /** R4: ISO del último mensaje de dolor. Mientras exista, las citas no llevan `focus`. Se limpia cuando ella dice que ya lo conversó con un profesional. */
   painPause?: string;
-  channel: { type: 'sim' | 'telegram'; chatId?: number };
+  channel: { type: 'sim' | 'telegram' | 'web'; chatId?: number };
   synthetic: boolean;
   consecutiveMoves: number;
   pending: { kind: 'capture' | 'other_hour' | 'renegotiate'; apptId: string; sentAt?: string } | null;

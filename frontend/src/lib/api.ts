@@ -180,6 +180,10 @@ export interface ServerEvent {
 }
 
 export const api = {
+  register: (alias: string, password: string, invite?: string) =>
+    req<{ token: string; userId: string; alias: string }>('POST', '/auth/register', { alias, password, invite }),
+  login: (alias: string, password: string) => req<{ token: string; userId: string; alias: string }>('POST', '/auth/login', { alias, password }),
+  deleteAccount: () => req<{ ok: boolean }>('POST', '/auth/delete', {}),
   exchangeCode: (code: string) => req<{ token: string; userId: string }>('POST', '/auth/exchange', { code }),
   meta: () => req<Meta>('GET', '/meta'),
   users: () => req<{ users: User[] }>('GET', '/users'),
