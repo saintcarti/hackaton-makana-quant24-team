@@ -98,6 +98,10 @@ export const T = {
   betaClosed: () => 'Hola. gogym está en beta cerrada por ahora. Si tienes un código de invitación, escríbelo así: /start TU-CÓDIGO.',
   welcome: () =>
     'Hola, soy gogym. Te ayudo a ordenar tu semana para que el gym siempre tenga un hueco, y a recuperarlo si una reunión se alarga. Esta es una beta con datos de prueba: guardo solo lo necesario para agendar y puedes borrar todo cuando quieras con /borrar.',
+  askName: () => '¿Cómo quieres que te llame? Escribe un nombre o un apodo (no hace falta que sea tu nombre real).',
+  nameInvalid: () => 'Escribe un nombre corto, solo con letras (hasta 24). Por ejemplo: Xavi.',
+  nameSaved: (name: string) => `Mucho gusto, ${name}.`,
+  nameChanged: (name: string) => `Listo, desde ahora te llamo ${name}.`,
   askPerWeek: () => '¿Cuántas veces por semana quieres ir?',
   askCalendar: () =>
     'Conecta tu Google Calendar para que mire tus reuniones y encuentre los huecos (antes del trabajo, al almuerzo o después). Solo leo horas ocupadas y creo tus citas; lo puedes desconectar cuando quieras.',

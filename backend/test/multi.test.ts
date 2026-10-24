@@ -190,3 +190,36 @@ describe('volver al hábito', () => {
 function engine_setClock(engine: Engine, c: any, when: Date) {
   engine.setClock(c, when);
 }
+
+describe('cada persona es llamada por su nombre, no por «Camila»', () => {
+  it('Telegram: el bot pregunta cómo llamarla y saluda con ese nombre', async () => {
+    const t = setup();
+    await t.say('/start');
+    expect(t.sent.map((m) => m.text).join('\n')).not.toMatch(/Camila/);
+    expect(t.texts.concat(t.sent.map((m) => m.text)).join('\n')).toMatch(/¿Cómo quieres que te llame\?/);
+    await t.say('Xavier');
+    expect((await t.engine.read((c) => c.db.users[UID]!)).name).toBe('Xavier');
+    expect(t.sent.some((m) => /Mucho gusto, Xavier/.test(m.text))).toBe(true);
+    await t.press('pw:2');
+    expect(t.sent.map((m) => m.text).join('\n')).toMatch(/Hola, Xavier\./);
+    expect(t.sent.map((m) => m.text).join('\n')).not.toMatch(/Hola, Camila/);
+  });
+
+  it('un nombre inválido se vuelve a pedir y el nombre se limpia', async () => {
+    const t = setup();
+    await t.say('/start');
+    await t.say('!!!');
+    expect(t.sent.at(-1)!.text).toMatch(/nombre corto/);
+    await t.say('  maría   josé <script> ');
+    expect((await t.engine.read((c) => c.db.users[UID]!)).name).toBe('María josé script');
+  });
+
+  it('/nombre lo cambia cuando quiera', async () => {
+    const t = setup();
+    await t.say('/start');
+    await t.say('Ana');
+    await t.say('/nombre Beto');
+    expect(t.texts.at(-1)).toMatch(/te llamo Beto/);
+    expect((await t.engine.read((c) => c.db.users[UID]!)).name).toBe('Beto');
+  });
+});
