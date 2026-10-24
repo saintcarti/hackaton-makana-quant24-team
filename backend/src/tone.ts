@@ -55,6 +55,12 @@ export const T = {
   focusOnly: (focus: string) => `Ese día toca ${focus}. Todavía no tengo una rutina armada para ese día.`,
   noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
+  slotChosenCal: (label: string, venue: string) => `Listo: ${label}, ${venue}. Ya quedó en tu Google Calendar.`,
+  movedCal: (label: string) => `Hecho, la moví al ${label} y actualicé tu Google Calendar. Mover no es fallar.`,
+  autoShifted: (from: string, to: string) =>
+    `Vi que tu calendario cambió y tu cita del ${from} chocaba con una reunión. La corrí al ${to} y ya actualicé tu Google Calendar. Si no te sirve, escribe "mueve".`,
+  autoNoSlot: () =>
+    'Vi que tu calendario cambió y tu cita choca con una reunión, pero no encontré un horario cercano que calce. Dime día y hora, por ejemplo "jueves 20:00", y la agendo.',
   moved: (label: string) => `Hecho, la moví al ${label}. Mover no es fallar.`,
   renegotiate: (a: string, b: string) =>
     `Ese horario no te está resultando, y está bien. ¿Probamos con el ${a} o el ${b}?`,

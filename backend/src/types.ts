@@ -73,6 +73,10 @@ export interface Appointment {
   moves: Move[];
   /** Id del evento en Google Calendar (si hay calendario conectado). */
   eventId?: string;
+  /** Veces que el agente la corrió solo porque el calendario cambió (tope 2, para no pelear con la usuaria). */
+  autoShifts?: number;
+  /** Ya avisó que choca con una reunión y no hay hueco cercano (un solo aviso). */
+  conflictNoticed?: boolean;
   /** Foco de la sesión según el split de la usuaria (solo grupos, R4). Ausente sin split o mientras dure la pausa por dolor. */
   focus?: { dayTypeId: string; label: string; groups: string[] };
   /** Rutina armada con el tiempo libre real de ese día. Ausente con pausa por dolor (R4) o si el tiempo es muy corto. */

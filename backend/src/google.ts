@@ -218,6 +218,36 @@ export async function clearMarkedEvents(token: string, prop: 'laCitaDemo' | 'laC
 
 export const clearDemoEvents = (token: string) => clearMarkedEvents(token, 'laCitaDemo');
 
+/**
+ * Bloques ocupados reales: las reuniones del calendario, SIN las citas que creó el agente (si no, la propia cita
+ * contaría como ocupada y al mover o calcular el hueco chocaría consigo misma). Ignora cancelados, "disponible" y
+ * eventos de día completo.
+ */
+export async function busyFromEvents(token: string, fromMs: number, toMs: number): Promise<Array<[number, number]>> {
+  const events = await listEvents(token, fromMs, toMs);
+  return events
+    .filter((e: any) => !e.isLaCita && !e.cancelled && !e.transparent && e.start?.includes('T') && e.end?.includes('T'))
+    .map((e: any) => [Date.parse(e.start), Date.parse(e.end)] as [number, number])
+    .filter(([s, e]: [number, number]) => Number.isFinite(s) && Number.isFinite(e) && e > s);
+}
+
+const AGENT_TITLES = new Set(['Tu cita contigo · gogym', 'La Cita contigo']);
+
+/**
+ * Borra las citas del agente del calendario: las marcadas por él y las que quedaron sueltas porque alguien importó el
+ * .ics a mano (mismo título, sin marca). Las reuniones de demo y las reales no se tocan.
+ */
+export async function clearAppointmentEvents(token: string, nowMs = Date.now()): Promise<number> {
+  const events = await listEvents(token, nowMs - 60 * 86400_000, nowMs + 120 * 86400_000);
+  let deleted = 0;
+  for (const ev of events as any[]) {
+    if (!ev.isLaCita && !AGENT_TITLES.has(ev.title)) continue;
+    const d = await api(token, 'DELETE', `/calendars/primary/events/${encodeURIComponent(ev.id)}`);
+    if (d.status === 204 || d.status === 200) deleted += 1;
+  }
+  return deleted;
+}
+
 /** Eventos próximos del calendario principal (para verificar/mostrar en el panel de demo). */
 export async function listEvents(token: string, fromMs: number, toMs: number) {
   const q = new URLSearchParams({
@@ -225,7 +255,7 @@ export async function listEvents(token: string, fromMs: number, toMs: number) {
     timeMax: new Date(toMs).toISOString(),
     singleEvents: 'true',
     orderBy: 'startTime',
-    maxResults: '100',
+    maxResults: '250',
   });
   const r = await api(token, 'GET', `/calendars/primary/events?${q.toString()}`);
   if (r.status !== 200) throw new Error(`Calendar events ${r.status}: ${JSON.stringify(r.json?.error ?? '').slice(0, 300)}`);
@@ -234,6 +264,8 @@ export async function listEvents(token: string, fromMs: number, toMs: number) {
     title: (e.summary ?? '') as string,
     start: (e.start?.dateTime ?? e.start?.date) as string,
     end: (e.end?.dateTime ?? e.end?.date) as string,
+    cancelled: e.status === 'cancelled',
+    transparent: e.transparency === 'transparent',
     isLaCita: e.extendedProperties?.private?.laCita === '1',
     isDemoMeeting: e.extendedProperties?.private?.laCitaDemo === '1',
   }));

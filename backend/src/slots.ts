@@ -73,7 +73,8 @@ function startTimes(user: User): Array<{ hour: number; minute: number }> {
  * Próximos `count` slots dentro de la ventana real de la usuaria. Si hay calendario conectado,
  * esquiva los bloques ocupados probando horas alternativas dentro de la ventana.
  */
-export function nextSlots(user: User, after: Date, count: number, taken: Date[] = [], busy: Busy[] = []): Date[] {
+export function nextSlots(user: User, after: Date, count: number, taken: Date[] = [], busy: Busy[] = [], opts: { lead?: number } = {}): Date[] {
+  const lead = opts.lead ?? MIN_LEAD_MS;
   const times = startTimes(user);
   const dur = sessionMs(user);
   const days = user.days?.length ? user.days : PREFERRED_DAYS;
@@ -84,7 +85,7 @@ export function nextSlots(user: User, after: Date, count: number, taken: Date[] 
     if (!days.includes(day.weekday)) continue;
     for (const t of times) {
       const slot = zonedToUtc(day.year, day.month, day.day, t.hour, t.minute);
-      if (slot.getTime() < after.getTime() + MIN_LEAD_MS) continue;
+      if (slot.getTime() < after.getTime() + lead) continue;
       if (overlaps(slot, taken, dur) || isBusy(slot, busy, dur)) continue;
       out.push(slot);
       break;

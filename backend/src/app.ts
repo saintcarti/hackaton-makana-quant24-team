@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
-import { accessToken, withToken, authUrl, clearDemoEvents, clearMarkedEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
+import { accessToken, withToken, authUrl, clearAppointmentEvents, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { isValidChoice } from './splits.js';
 import { DEMO_USER_ID, freshDB } from './seed.js';
@@ -82,9 +82,20 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
   // ───────────── demo ─────────────
   app.post('/api/demo/reset', requireAdmin, async (c) => {
     const body = z.object({ seed: z.boolean().default(true), now: z.string().datetime().optional(), keepGoogle: z.boolean().default(true) }).parse(await c.req.json().catch(() => ({})));
-    const out = await engine.run((x) => {
+    const out = await engine.run(async (x) => {
       const now = body.now ? new Date(body.now) : new Date();
       const links = x.db.google ?? {};
+      // Las citas que creó el agente en Google se borran antes de vaciar la base: si no, quedan huérfanas y se ven duplicadas.
+      const g = engine.google;
+      if (g && body.keepGoogle) {
+        for (const link of Object.values(links)) {
+          try {
+            await withToken(g, link, Date.now(), (t) => clearAppointmentEvents(t, Date.now()));
+          } catch (err) {
+            console.warn(JSON.stringify({ evt: 'gcal_reset_clear_error', message: (err as Error).message }));
+          }
+        }
+      }
       x.db = freshDB(now, body.seed);
       // Las conexiones de Google sobreviven al reset (se reconectaría con una autorización manual); el caché de ocupación no.
       if (body.keepGoogle) x.db.google = Object.fromEntries(Object.entries(links).map(([id, l]) => [id, { ...l, busyCache: undefined }]));
@@ -443,6 +454,23 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     return c.json(out);
   });
 
+  // Para el demo: agrega una reunión puntual al calendario conectado ("se alargó la reunión"). Luego /jobs/tick corre la cita.
+  app.post('/api/google/demo-meeting', requireAdmin, async (c) => {
+    const g = engine.google;
+    if (!g) throw new DomainError('google_disabled', 'Google no está configurado', 503);
+    const body = z
+      .object({ userId: z.string(), title: z.string().max(80).default('Reunión con cliente'), start: z.string().datetime({ offset: true }), end: z.string().datetime({ offset: true }) })
+      .parse(await c.req.json());
+    const out = await engine.run(async (x) => {
+      const link = x.db.google?.[body.userId];
+      if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
+      const id = await withToken(g, link, x.now.getTime(), (t) => createDemoEvent(t, body.title, new Date(body.start), new Date(body.end)));
+      link.busyCache = undefined;
+      return { id };
+    });
+    return c.json(out, 201);
+  });
+
   // Borra solo las citas que creó el agente en el calendario conectado; las reuniones de demo quedan.
   app.post('/api/google/appointments/clear', requireAdmin, async (c) => {
     const g = engine.google;
@@ -451,7 +479,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const out = await engine.run(async (x) => {
       const link = x.db.google?.[userId];
       if (!link) throw new DomainError('not_connected', 'La usuaria no conectó su calendario', 409);
-      const deleted = await withToken(g, link, x.now.getTime(), (t) => clearMarkedEvents(t, 'laCita'));
+      const deleted = await withToken(g, link, x.now.getTime(), (t) => clearAppointmentEvents(t, x.now.getTime()));
       link.busyCache = undefined;
       for (const a of Object.values(x.db.appointments)) if (a.userId === userId) a.eventId = undefined;
       return { deleted };
