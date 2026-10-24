@@ -529,7 +529,7 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
         });
       }
       const isStart = inbound.text?.startsWith('/start');
-      await engine.handleInbound(x, user.id, isStart ? { text: 'hola' } : { text: inbound.text, action: inbound.action });
+      await engine.handleInbound(x, user.id, isStart ? { text: 'hola' } : { text: inbound.text, action: inbound.action, tgMessageId: inbound.messageId });
     });
     return c.json({ ok: true });
   });

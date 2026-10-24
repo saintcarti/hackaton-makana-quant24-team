@@ -35,16 +35,17 @@ export class TelegramChannel {
     return { inline_keyboard: rows };
   }
 
-  async send(chatId: number, msg: Message, icsContent?: string) {
+  /** Devuelve el id del mensaje de texto enviado (null si Telegram no lo informa). */
+  async send(chatId: number, msg: Message, icsContent?: string): Promise<number | null> {
     const rows = msg.buttons?.length ? TelegramChannel.keyboard(msg.buttons).inline_keyboard : [];
     // Botón de URL: abre Google Calendar con el evento prellenado (no requiere OAuth).
     const inline: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [...rows];
     if (msg.attachment?.gcalUrl) inline.push([{ text: '📅 Agregar a Google Calendar', url: msg.attachment.gcalUrl }]);
-    await this.call('sendMessage', {
+    const sent = (await this.call('sendMessage', {
       chat_id: chatId,
       text: msg.text,
       ...(inline.length ? { reply_markup: { inline_keyboard: inline } } : {}),
-    });
+    })) as { result?: { message_id?: number } };
     if (msg.attachment && icsContent) {
       const form = new FormData();
       form.set('chat_id', String(chatId));
@@ -52,6 +53,17 @@ export class TelegramChannel {
       form.set('caption', 'Agrégala a tu calendario con un toque.');
       const res = await fetch(this.url('sendDocument'), { method: 'POST', body: form });
       if (!res.ok) throw new Error(`Telegram sendDocument ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    }
+    return sent?.result?.message_id ?? null;
+  }
+
+  /** Quita los botones de un mensaje y, si se da `text`, lo deja con la elección marcada. No lanza: el mensaje puede ser muy viejo. */
+  async clearButtons(chatId: number, messageId: number, text?: string) {
+    try {
+      if (text) await this.call('editMessageText', { chat_id: chatId, message_id: messageId, text, reply_markup: { inline_keyboard: [] } });
+      else await this.call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
+    } catch (err) {
+      console.warn(JSON.stringify({ evt: 'tg_edit_error', messageId, message: (err as Error).message.slice(0, 160) }));
     }
   }
 
@@ -73,6 +85,8 @@ export interface TelegramInbound {
   text?: string;
   action?: string;
   callbackQueryId?: string;
+  /** Mensaje de Telegram que traía el botón apretado. */
+  messageId?: number;
 }
 
 /** Normaliza un Update de Telegram a algo que el motor entiende. Null si no es relevante. */
@@ -81,7 +95,7 @@ export function parseTelegramUpdate(update: any): TelegramInbound | null {
     const cq = update.callback_query;
     const chatId = cq.message?.chat?.id;
     if (typeof chatId !== 'number' || typeof cq.data !== 'string') return null;
-    return { chatId, action: cq.data, callbackQueryId: cq.id };
+    return { chatId, action: cq.data, callbackQueryId: cq.id, messageId: typeof cq.message?.message_id === 'number' ? cq.message.message_id : undefined };
   }
   const m = update?.message;
   if (m && typeof m.chat?.id === 'number' && typeof m.text === 'string') {

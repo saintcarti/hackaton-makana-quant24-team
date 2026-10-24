@@ -208,6 +208,10 @@ Si Camila pregunta qué tiene agendado o qué hora le conviene («¿qué hora me
 
 Con `user.flexTimes` (por defecto sí) la ventana 19:00–21:00 deja de ser un límite: el agente busca hueco en todo el horario del gym (`gymHours`, por defecto 05:30–23:00) entre las reuniones del calendario. Si hay reuniones cargadas (Google conectado u ocupación informada con `POST /busy`), no propone solo después del trabajo: reparte en partes del día y rotula cada botón («Lun 26 · 13:00 · almuerzo», «Lun 26 · 19:15 · tras el trabajo», «… · antes del trabajo» (etiquetas cortas, caben en un botón de Telegram; un horario por fila); orden de preferencia: después del trabajo, almuerzo, antes del trabajo, media tarde). Deja 10 min de margen antes y después de cada reunión para que un atraso corto no choque, y la rutina se arma con el tiempo que realmente queda hasta la próxima reunión o el cierre del gym. Si una reunión se alarga y pisa la cita, el corrimiento automático la mueve al siguiente hueco del día. Sin reuniones cargadas se mantiene el hábito de siempre (19:15). `CalendarWeek.hourRange` es `05:00–23:30` en este modo (antes `18:00–21:30`): la grilla debe leerlo. `PATCH /preferences { flexTimes: false }` vuelve a la ventana fija.
 
+### Botones que desaparecen al elegir
+
+Al apretar un botón, el mensaje queda con la elección (`Message.chosen`, p. ej. «Lun 26 · 13:45 · almuerzo») y sin `buttons`; en Telegram el mensaje se edita («✔ Lun 26 · 13:45 · almuerzo») y se le quita el teclado. Si ella responde escribiendo, o llega una propuesta nueva, o la cita se confirma/mueve/cierra, los botones viejos (horarios, «Otra hora», «Esta semana no», «Mueve», «Listo») se limpian también. La respuesta de ella en el espejo del chat es la etiqueta del botón, no el código. Ojo con el polling `?after=n`: solo trae mensajes nuevos, así que un mensaje viejo ya cargado no se entera de que perdió los botones; la web debe ocultar los de un mensaje que ya tiene una respuesta de ella después (`Chat.tsx` lo hace).
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |

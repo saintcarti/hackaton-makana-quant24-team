@@ -2020,3 +2020,10 @@ select {
 .next-focus b {
   color: var(--accent-ink);
 }
+
+/* Botón elegido: los botones del mensaje desaparecen y queda solo la elección. */
+.chosen {
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  color: var(--muted, #6b7280);
+}

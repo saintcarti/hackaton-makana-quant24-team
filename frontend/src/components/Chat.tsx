@@ -153,10 +153,13 @@ export default function Chat({
         )}
         {messages.map((m, i) => {
           const pos = groupPos(messages, i);
+          // Con botones ya respondidos (lo dice el servidor, o hay un mensaje de ella después) quedan solo la elección.
+          const chosen = m.chosen ?? (m.buttons?.length ? messages.find((x) => x.dir === 'in' && x.n > m.n)?.text : undefined);
           return (
           <div key={msgKey(m)} className={`msg ${m.dir} g-${pos}`}>
             <div className="bubble">{m.text}</div>
-            {m.buttons && m.buttons.length > 0 && (
+            {chosen && <div className="chosen">✔ {chosen}</div>}
+            {m.buttons && m.buttons.length > 0 && !chosen && (
               <div className="kb">
                 {m.buttons.map((b) => (
                   <button

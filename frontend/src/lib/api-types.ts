@@ -32,6 +32,8 @@ export interface Message {
   at: string;
   text: string;
   buttons?: Button[];
+  /** Etiqueta del botón que ella eligió. Al elegir, `buttons` desaparece del mensaje (y en Telegram se quitan del chat). */
+  chosen?: string;
   attachment?: Attachment;
 }
 

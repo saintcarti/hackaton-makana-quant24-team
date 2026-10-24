@@ -61,6 +61,8 @@ export interface Ctx {
   ops: Set<string>;
   /** Eventos de Google que hay que borrar (citas reemplazadas por una nueva de la misma semana). */
   drops: Array<{ userId: string; eventId: string }>;
+  /** Mensajes de Telegram a los que hay que quitarles los botones (y marcar la elección). */
+  edits: Array<{ chatId: number; messageId: number; text?: string }>;
   /** Bloques ocupados del calendario real por usuaria (precargados al inicio de `run`). */
   busy: Map<string, Busy[]>;
 }
@@ -69,6 +71,8 @@ export interface Inbound {
   text?: string;
   action?: string;
   label?: string;
+  /** Mensaje de Telegram del que salió el botón. */
+  tgMessageId?: number;
 }
 
 export interface EngineDeps {
@@ -99,7 +103,7 @@ export class Engine {
   run<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
     const job = this.queue.then(async () => {
       const db = await this.deps.store.load();
-      const c: Ctx = { db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], busy: new Map() };
+      const c: Ctx = { db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], edits: [], busy: new Map() };
       await this.loadBusy(c);
       const result = await fn(c);
       await this.syncCalendar(c);
@@ -115,7 +119,7 @@ export class Engine {
   read<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
     const job = this.queue.then(async () => {
       const db = await this.deps.store.load();
-      return fn({ db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], busy: new Map() });
+      return fn({ db, now: new Date(Date.now() + db.clockOffsetMs), outbox: [], ops: new Set(), drops: [], edits: [], busy: new Map() });
     });
     this.queue = job.catch(() => undefined);
     return job;
@@ -124,6 +128,8 @@ export class Engine {
   private async deliver(c: Ctx) {
     const tg = this.deps.telegram;
     if (!tg) return;
+    for (const e of c.edits) await tg.clearButtons(e.chatId, e.messageId, e.text);
+    let idsChanged = false;
     for (const msg of c.outbox) {
       const user = c.db.users[msg.userId];
       if (!user || user.channel.type !== 'telegram' || user.channel.chatId == null) continue;
@@ -133,15 +139,50 @@ export class Engine {
           const appt = c.db.appointments[msg.attachment.apptId];
           if (appt?.startsAt) ics = buildIcs(appt, user, c.now);
         }
-        await tg.send(user.channel.chatId, msg, ics);
+        const tgId = await tg.send(user.channel.chatId, msg, ics);
+        if (tgId != null) {
+          const stored = c.db.messages.find((m) => m.id === msg.id);
+          if (stored) stored.tgMessageId = tgId;
+          idsChanged = true;
+        }
         console.log(JSON.stringify({ evt: 'tg_sent', userId: user.id, msg: msg.id, ics: !!ics }));
       } catch (err) {
         console.error(JSON.stringify({ evt: 'tg_error', userId: user.id, msg: msg.id, message: (err as Error).message }));
       }
     }
+    if (idsChanged) await this.deps.store.save(c.db);
+  }
+
+  /** Quita los botones de mensajes anteriores (los que cumplan `pred`) y, en Telegram, los borra del chat. */
+  private clearButtons(c: Ctx, userId: string, pred: (action: string) => boolean) {
+    const user = c.db.users[userId];
+    for (const m of c.db.messages) {
+      if (m.userId !== userId || m.dir !== 'out' || !m.buttons?.some((b) => b.action && pred(b.action))) continue;
+      m.buttons = undefined;
+      if (user?.channel.type === 'telegram' && user.channel.chatId != null && m.tgMessageId) {
+        c.edits.push({ chatId: user.channel.chatId, messageId: m.tgMessageId });
+      }
+    }
+  }
+
+  /** Ella eligió un botón: ese mensaje queda con la elección marcada y sin botones. Devuelve la etiqueta. */
+  private consumeButton(c: Ctx, userId: string, action: string, tgMessageId?: number): string | undefined {
+    const candidates = c.db.messages.filter((m) => m.userId === userId && m.dir === 'out' && m.buttons?.some((b) => b.action === action));
+    const msg = (tgMessageId != null && candidates.find((m) => m.tgMessageId === tgMessageId)) || candidates.at(-1);
+    if (!msg) return undefined;
+    const label = msg.buttons!.find((b) => b.action === action)!.label;
+    msg.chosen = label;
+    msg.buttons = undefined;
+    const user = c.db.users[userId];
+    if (user?.channel.type === 'telegram' && user.channel.chatId != null && (msg.tgMessageId ?? tgMessageId) != null) {
+      c.edits.push({ chatId: user.channel.chatId, messageId: (msg.tgMessageId ?? tgMessageId)!, text: `${msg.text}\n\n✔ ${label}` });
+    }
+    return label;
   }
 
   private emit(c: Ctx, userId: string, out: OutMessage): Message {
+    // Botones nuevos reemplazan a los anteriores: el chat no acumula opciones viejas.
+    if (out.buttons?.some((b) => b.action)) this.clearButtons(c, userId, () => true);
     c.db.seq += 1;
     const msg: Message = {
       ...out,
@@ -566,6 +607,7 @@ export class Engine {
     appt.weekOf = mondayOf(when);
     if (!wasMove) this.supersede(c, user, appt);
     appt.conflictNoticed = undefined;
+    this.clearButtons(c, user.id, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week' || a === 'move' || a === 'done');
     if (auto) appt.autoShifts = (appt.autoShifts ?? 0) + 1;
     this.assignFocus(c, user, appt);
     user.pending = null;
@@ -731,6 +773,7 @@ export class Engine {
     }
     appt.status = 'done';
     appt.doneAt = c.now.toISOString();
+    this.clearButtons(c, userId, (a) => a === 'move' || a === 'done');
     user.consecutiveMoves = 0;
     this.event(c, userId, 'done', appt.id);
     const recovered = user.monthlyFee / user.plannedVisitsPerMonth;
@@ -746,6 +789,7 @@ export class Engine {
       if (a && a.status === 'proposed') a.status = 'skipped';
     }
     user.pending = null;
+    this.clearButtons(c, userId, (a) => a.startsWith('slot:') || a === 'other_hour' || a === 'skip_week');
     this.event(c, userId, 'week_skipped');
     this.emit(c, userId, { text: T.weekSkipped() });
   }
@@ -756,7 +800,8 @@ export class Engine {
     const user = this.user(c, userId);
     const before = c.db.seq;
     const text = (input.text ?? '').trim();
-    this.logIn(c, userId, input.label ?? (text || `[${input.action ?? 'vacío'}]`));
+    const chosen = input.action ? this.consumeButton(c, userId, input.action, input.tgMessageId) : undefined;
+    this.logIn(c, userId, input.label ?? chosen ?? (text || `[${input.action ?? 'vacío'}]`));
 
     if (input.action) {
       this.handleAction(c, user, input.action);
