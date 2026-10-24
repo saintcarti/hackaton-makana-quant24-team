@@ -27,6 +27,7 @@ export function buildIcs(appt: Appointment, user: User, now: Date = new Date()):
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
     `UID:${appt.id}@la-cita`,
+    `SEQUENCE:${appt.moves.length}`,
     `DTSTAMP:${fmt(now)}`,
     `DTSTART:${fmt(start)}`,
     `DTEND:${fmt(end)}`,

@@ -1,6 +1,6 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
-import { GoogleConfig, freeBusy, upsertEvent, withToken } from './google.js';
+import { GoogleConfig, busyFromEvents, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
 import { autoDecide, type DayRoom } from './autoplan.js';
 import { buildRoutine } from './routine.js';
@@ -207,7 +207,9 @@ export class Engine {
       .sort((x, y) => x.startsAt!.localeCompare(y.startsAt!))[0];
   }
 
+  /** Con Google conectado la cita ya queda en su calendario (y se mueve sola): no se manda .ics, que duplicaría el evento. */
   private icsAttachment(c: Ctx, a: Appointment) {
+    if (this.isConnected(c, a.userId)) return undefined;
     return {
       kind: 'ics' as const,
       apptId: a.id,
@@ -275,7 +277,7 @@ export class Engine {
         continue;
       }
       try {
-        const intervals = await withToken(g, link, c.now.getTime(), (t) => freeBusy(t, c.now.getTime(), c.now.getTime() + 21 * 86400_000));
+        const intervals = await withToken(g, link, c.now.getTime(), (t) => busyFromEvents(t, c.now.getTime(), c.now.getTime() + 21 * 86400_000));
         link.busyCache = { at: c.now.getTime(), intervals };
         c.busy.set(userId, intervals.map(([start, end]) => ({ start, end })));
       } catch (err) {
@@ -503,19 +505,31 @@ export class Engine {
   }
 
   /** Confirma o mueve una cita a una hora concreta. */
-  private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source']) {
+  private place(c: Ctx, user: User, appt: Appointment, when: Date, source: Appointment['source'], auto?: { from: Date }) {
     const wasMove = appt.startsAt != null && appt.startsAt !== when.toISOString();
     if (wasMove) appt.moves.push({ from: appt.startsAt!, to: when.toISOString(), at: c.now.toISOString() });
     appt.startsAt = when.toISOString();
     appt.status = 'confirmed';
     appt.source = source;
     appt.weekOf = mondayOf(when);
+    appt.conflictNoticed = undefined;
+    if (auto) appt.autoShifts = (appt.autoShifts ?? 0) + 1;
     this.assignFocus(c, user, appt);
     user.pending = null;
     c.ops.add(appt.id);
-    this.event(c, user.id, wasMove ? 'moved' : 'slot_chosen', appt.id, { to: appt.startsAt });
+    this.event(c, user.id, wasMove ? 'moved' : 'slot_chosen', appt.id, { to: appt.startsAt, ...(auto ? { auto: true } : {}) });
+    const connected = this.isConnected(c, user.id);
+    const label = formatSlot(when);
     this.emit(c, user.id, {
-      text: wasMove ? T.moved(formatSlot(when)) : T.slotChosen(formatSlot(when), appt.venue),
+      text: auto
+        ? T.autoShifted(formatSlot(auto.from), label)
+        : wasMove
+          ? connected
+            ? T.movedCal(label)
+            : T.moved(label)
+          : connected
+            ? T.slotChosenCal(label, appt.venue)
+            : T.slotChosen(label, appt.venue),
       attachment: this.icsAttachment(c, appt),
     });
   }
@@ -897,6 +911,28 @@ export class Engine {
     for (const appt of Object.values(c.db.appointments)) {
       if (!appt.startsAt) continue;
       const start = new Date(appt.startsAt).getTime();
+      // e. el calendario cambió y una reunión pisa la cita: la corre sola al próximo hueco (sin pedirle nada a ella)
+      if ((appt.status === 'confirmed' || appt.status === 'reminded') && start > c.now.getTime() + 20 * 60_000 && start < c.now.getTime() + 7 * 86400_000) {
+        const user = c.db.users[appt.userId];
+        const busy = user ? this.busyFor(c, user.id) : [];
+        const end = start + appt.durationMin * 60_000;
+        if (user && busy.some((b) => start < b.end && end > b.start) && (appt.autoShifts ?? 0) < 2) {
+          const after = new Date(Math.max(c.now.getTime() + 30 * 60_000, start + 60_000));
+          const [next] = nextSlots(user, after, 1, this.taken(c, user.id, appt.id), busy, { lead: 0 });
+          if (next) {
+            this.place(c, user, appt, next, 'move', { from: new Date(start) });
+            actions.push({ userId: user.id, action: 'auto_shift', apptId: appt.id });
+            continue;
+          }
+          if (!appt.conflictNoticed) {
+            appt.conflictNoticed = true;
+            user.pending = { kind: 'other_hour', apptId: appt.id };
+            this.emit(c, user.id, { text: T.autoNoSlot() });
+            actions.push({ userId: user.id, action: 'conflict_notice', apptId: appt.id });
+            continue;
+          }
+        }
+      }
       // c. recordatorio único del día
       if (appt.status === 'confirmed' && c.now.getTime() >= start - this.config.reminderLeadMin * 60000 && c.now.getTime() < start) {
         this.sendReminder(c, appt.userId, appt.id);

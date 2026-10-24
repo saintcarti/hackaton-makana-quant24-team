@@ -192,6 +192,10 @@ Las reglas entienden el día y la hora en texto libre: toman la hora destino («
 
 R4: si Camila menciona dolor, el agente deriva a un kinesiólogo o médico deportólogo, pone `user.painPause` y quita el foco de las citas que vienen. Mientras dure, ninguna cita nueva lleva `focus`. Se retoma cuando ella escribe algo como «ya lo conversé con mi kinesiólogo» (respuesta «Retomamos: …»). Hoy el agente agenda una cita por semana, así que el foco es el que el plan asigna a ese día; las demás sesiones del split siguen siendo sugerencias de la web (fase 2).
 
+### Un solo evento por cita, y corrimiento automático
+
+Con Google conectado el agente crea el evento y lo **mueve** (mismo evento) cuando la cita cambia; por eso no manda `.ics` ni el botón «Agregar a Google Calendar» (`attachment` ausente): importarlo a mano duplicaría el evento. Sin Google conectado sí va el `.ics` (con `SEQUENCE` para que una reimportación actualice). Lo «ocupado» sale de las reuniones reales del calendario sin contar las citas del propio agente. En cada `tick` (cron cada 5 min en hora real; `POST /jobs/tick` en el demo con reloj simulado), si una reunión nueva pisa una cita de los próximos 7 días, el agente la corre solo al siguiente hueco y avisa («Vi que tu calendario cambió… La corrí al…»); no cuenta como un MUEVE de ella y lo hace como máximo 2 veces por cita. Si no hay hueco cercano avisa una vez y pide día y hora. `POST /demo/reset` borra antes las citas del agente en Google para no dejar eventos huérfanos.
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |
@@ -211,6 +215,7 @@ Si la usuaria conecta su Google Calendar, el backend crea la cita en su calendar
 | GET | `/users/:id/google/events` (admin) | `{ events: [{ id, title, start, end, isLaCita, isDemoMeeting }] }`: próximos 21 días del calendario conectado; útil para mostrar el calendario real en el panel |
 | POST | `/google/demo-events` (admin) | `{ userId }`: siembra el calendario conectado con las reuniones inventadas de una jefa de proyectos (próximas 2 semanas) |
 | POST | `/google/demo-events/clear` (admin) | `{ userId }`: borra esos eventos de demo |
+| POST | `/google/demo-meeting` (admin) | `{ userId, start, end, title? }` (ISO con zona): agrega una reunión al calendario conectado para el demo («se alargó la reunión»). Después `POST /jobs/tick` hace que el agente corra la cita al siguiente hueco |
 | POST | `/google/appointments/clear` (admin) | `{ userId }`: borra solo las citas que creó el agente en el calendario (deja las reuniones de demo). Úsalo junto con `/demo/reset` para dejar a Camila limpia |
 
 Tras conectar, el backend manda un mensaje al chat («Listo, quedó conectado tu Google Calendar…»), que aparece en el siguiente polling. El token de Google nunca sale del backend. La conexión funciona solo para usuarias de prueba autorizadas en el proyecto de Google (modo «En pruebas»).

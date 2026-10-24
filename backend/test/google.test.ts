@@ -55,7 +55,9 @@ describe('sincronización con Google Calendar', () => {
       const method = init?.method ?? 'GET';
       const body = init?.body && typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : undefined;
       calls.push({ method, url, body });
-      if (url.includes('/freeBusy')) return new Response(JSON.stringify({ calendars: { primary: { busy } } }));
+      if (method === 'GET' && url.includes('/calendars/primary/events?')) {
+        return new Response(JSON.stringify({ items: busy.map((b, i) => ({ id: `m${i}`, summary: 'Reunión', start: { dateTime: b.start }, end: { dateTime: b.end } })) }));
+      }
       if (url.includes('oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }));
       if (method === 'POST' && url.endsWith('/events')) return new Response(JSON.stringify({ id: 'ev1' }));
       if (method === 'PATCH') return new Response(JSON.stringify({ id: 'ev1', status: 'confirmed' }));
@@ -156,5 +158,90 @@ describe('token rechazado por Google', () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe('un solo evento por cita y corrimiento automático', () => {
+  const link = { refreshToken: 'r', accessToken: 'at', expiresAt: Date.now() + 3600_000, connectedAt: new Date().toISOString() };
+
+  function mock(meetings: Array<{ start: string; end: string }>) {
+    const calls: Array<{ method: string; url: string }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any, init?: any) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      calls.push({ method, url });
+      if (method === 'GET' && url.includes('/calendars/primary/events?')) {
+        return new Response(JSON.stringify({ items: meetings.map((b, i) => ({ id: `m${i}`, summary: 'Reunión', start: { dateTime: b.start }, end: { dateTime: b.end } })) }));
+      }
+      if (url.includes('oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }));
+      if (method === 'POST' && url.endsWith('/events')) return new Response(JSON.stringify({ id: 'ev1' }));
+      if (method === 'PATCH') return new Response(JSON.stringify({ id: 'ev1', status: 'confirmed' }));
+      return new Response('{}', { status: 404 });
+    });
+    return calls;
+  }
+
+  async function booked(meetings: Array<{ start: string; end: string }>) {
+    const calls = mock(meetings);
+    const engine = new Engine({ store: new MemoryStore(), google: cfg });
+    await engine.run((c) => {
+      engine.setClock(c, SUNDAY_20);
+      engine.createUser(c, { id: 'u1' });
+      engine.connectGoogle(c, 'u1', { ...link });
+    });
+    const appt = await engine.run((c) => engine.startCapture(c, 'u1'));
+    await engine.run((c) => engine.chooseSlot(c, 'u1', appt.id, appt.options[0]!));
+    return { engine, calls, appt };
+  }
+
+  it('con Google conectado no manda .ics ni botón de agregar (duplicaría el evento)', async () => {
+    const { engine } = await booked([]);
+    const msgs = await engine.read((c) => c.db.messages.filter((m) => m.dir === 'out'));
+    const last = msgs.at(-1)!;
+    expect(last.text).toContain('Ya quedó en tu Google Calendar');
+    expect(last.attachment).toBeUndefined();
+  });
+
+  it('las citas del propio agente no cuentan como ocupado', async () => {
+    const { busyFromEvents } = await import('../src/google.js');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            { id: 'a', summary: 'Tu cita contigo · gogym', start: { dateTime: '2026-10-26T19:15:00-03:00' }, end: { dateTime: '2026-10-26T19:55:00-03:00' }, extendedProperties: { private: { laCita: '1' } } },
+            { id: 'b', summary: 'Reunión', start: { dateTime: '2026-10-26T17:00:00-03:00' }, end: { dateTime: '2026-10-26T18:00:00-03:00' } },
+            { id: 'c', summary: 'Libre', transparency: 'transparent', start: { dateTime: '2026-10-26T12:00:00-03:00' }, end: { dateTime: '2026-10-26T13:00:00-03:00' } },
+            { id: 'd', summary: 'Feriado', start: { date: '2026-10-27' }, end: { date: '2026-10-28' } },
+          ],
+        }),
+      ),
+    );
+    const busy = await busyFromEvents('at', 0, 1);
+    expect(busy).toEqual([[Date.parse('2026-10-26T17:00:00-03:00'), Date.parse('2026-10-26T18:00:00-03:00')]]);
+  });
+
+  it('si una reunión nueva pisa la cita, el agente la corre solo y actualiza el mismo evento', async () => {
+    const meetings: Array<{ start: string; end: string }> = [];
+    const { engine, calls, appt } = await booked(meetings);
+    expect(appt.options[0]).toBe(zonedToUtc(2026, 10, 26, 19, 15).toISOString());
+    // aparece una reunión lunes 18:30–20:10 (se alargó)
+    meetings.push({ start: zonedToUtc(2026, 10, 26, 18, 30).toISOString(), end: zonedToUtc(2026, 10, 26, 20, 10).toISOString() });
+    await engine.run((c) => {
+      for (const l of Object.values(c.db.google ?? {})) l.busyCache = undefined;
+    });
+    await engine.run((c) => engine.tick(c));
+    const stored = await engine.read((c) => c.db.appointments[appt.id]!);
+    expect(stored.startsAt).toBe(zonedToUtc(2026, 10, 26, 20, 15).toISOString());
+    expect(stored.eventId).toBe('ev1');
+    expect(calls.filter((x) => x.method === 'POST' && x.url.endsWith('/events'))).toHaveLength(1);
+    expect(calls.filter((x) => x.method === 'PATCH')).toHaveLength(1);
+    const user = await engine.read((c) => c.db.users['u1']!);
+    expect(user.consecutiveMoves).toBe(0); // correrla sola no cuenta como un MUEVE de ella
+    const last = (await engine.read((c) => c.db.messages.filter((m) => m.dir === 'out'))).at(-1)!;
+    expect(last.text).toMatch(/Vi que tu calendario cambió/);
+    expect(toneViolations(last.text)).toEqual([]);
+    // un segundo tick no la vuelve a mover
+    await engine.run((c) => engine.tick(c));
+    expect((await engine.read((c) => c.db.appointments[appt.id]!)).startsAt).toBe(stored.startsAt);
   });
 });
