@@ -118,6 +118,10 @@ export interface OutMessage {
 }
 
 export interface Message extends OutMessage {
+  /** Id del mensaje en Telegram (para quitarle los botones cuando ya se eligió). */
+  tgMessageId?: number;
+  /** Etiqueta del botón que ella eligió. Al elegir, los botones del mensaje se quitan (`buttons` desaparece). */
+  chosen?: string;
   n: number;
   id: string;
   userId: string;
