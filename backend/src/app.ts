@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { parseTelegramUpdate } from './channels/telegram.js';
 import { DomainError, Engine } from './engine.js';
+import { T } from './tone.js';
 import { accessToken, withToken, authUrl, clearAppointmentEvents, clearDemoEvents, createDemoEvent, exchangeCode, listEvents, signState, verifyState } from './google.js';
 import { buildIcs } from './ics.js';
 import { isValidChoice } from './splits.js';
@@ -15,6 +16,10 @@ export interface AppOptions {
   adminToken?: string;
   telegramSecret?: string;
   corsOrigin?: string | string[];
+  /** Si está definido, las usuarias reales (Telegram) solo se ven con su sesión o el token admin. */
+  sessionSecret?: string;
+  /** Si está definido, solo entran al bot los chats que escriban `/start <código>` (beta cerrada). */
+  inviteCode?: string;
 }
 
 const PRESETS: Record<string, { weekday: number; hour: number; minute: number }> = {
@@ -41,7 +46,7 @@ function presetDate(preset: string, from: Date): Date | null {
 export function createApp(engine: Engine, opts: AppOptions = {}) {
   const app = new Hono();
 
-  app.use('/api/*', cors({ origin: opts.corsOrigin ?? '*', allowHeaders: ['Content-Type', 'x-admin-token'] }));
+  app.use('/api/*', cors({ origin: opts.corsOrigin ?? '*', allowHeaders: ['Content-Type', 'x-admin-token', 'Authorization'] }));
 
   app.onError((err, c) => {
     if (err instanceof DomainError) {
@@ -60,6 +65,43 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     }
     await next();
   };
+
+  // ───────────── acceso por usuaria ─────────────
+  // Las usuarias sintéticas del simulador siguen abiertas (demo). Las de Telegram son personas reales:
+  // solo se ven con su propia sesión (código de /web) o con el token admin.
+  const isAdmin = (c: any) => !!opts.adminToken && c.req.header('x-admin-token') === opts.adminToken;
+  const sessionUser = async (c: any): Promise<string | null> => {
+    const h = c.req.header('Authorization') ?? '';
+    if (!opts.sessionSecret || !h.startsWith('Bearer ')) return null;
+    const who = await verifyState(opts.sessionSecret, h.slice(7));
+    return who?.startsWith('session:') ? who.slice(8) : null;
+  };
+  const canSee = async (c: any, userId: string, channel: string | undefined) => {
+    if (!opts.sessionSecret) return true;
+    if (channel !== 'telegram') return true;
+    return isAdmin(c) || (await sessionUser(c)) === userId;
+  };
+  app.use('/api/users/:id', async (c, next) => {
+    const id = c.req.param('id');
+    const channel = await engine.read((x) => x.db.users[id]?.channel.type);
+    if (!(await canSee(c, id, channel))) return c.json({ error: { code: 'unauthorized', message: 'Entra con tu código de Telegram (/web)' } }, 401);
+    await next();
+  });
+  app.use('/api/users/:id/*', async (c, next) => {
+    const id = c.req.param('id');
+    const channel = await engine.read((x) => x.db.users[id]?.channel.type);
+    if (!(await canSee(c, id, channel))) return c.json({ error: { code: 'unauthorized', message: 'Entra con tu código de Telegram (/web)' } }, 401);
+    await next();
+  });
+
+  app.post('/api/auth/exchange', async (c) => {
+    if (!opts.sessionSecret) throw new DomainError('auth_disabled', 'El acceso con código no está configurado', 503);
+    const { code } = z.object({ code: z.string().regex(/^\d{6}$/, 'El código tiene 6 dígitos') }).parse(await c.req.json().catch(() => ({})));
+    const userId = await engine.run((x) => engine.exchangeLoginCode(x, code));
+    if (!userId) throw new DomainError('invalid_code', 'Código inválido o vencido. Pídelo de nuevo con /web en Telegram.', 401);
+    const token = await signState(opts.sessionSecret, `session:${userId}`, 7 * 86400_000);
+    return c.json({ token, userId });
+  });
 
   // ───────────── meta ─────────────
   app.get('/api/health', (c) => c.json({ ok: true, service: 'la-cita-backend' }));
@@ -96,7 +138,9 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
           }
         }
       }
+      const allowed = x.db.allowedChats;
       x.db = freshDB(now, body.seed);
+      if (allowed) x.db.allowedChats = allowed;
       // Las conexiones de Google sobreviven al reset (se reconectaría con una autorización manual); el caché de ocupación no.
       if (body.keepGoogle) x.db.google = Object.fromEntries(Object.entries(links).map(([id, l]) => [id, { ...l, busyCache: undefined }]));
       x.db.clockOffsetMs = body.now ? now.getTime() - Date.now() : 0;
@@ -199,7 +243,12 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     return c.json({ ok: true, count: intervals.length });
   });
 
-  app.get('/api/users', async (c) => c.json({ users: await engine.read((x) => Object.values(x.db.users)) }));
+  app.get('/api/users', async (c) => {
+    const all = await engine.read((x) => Object.values(x.db.users));
+    if (!opts.sessionSecret || isAdmin(c)) return c.json({ users: all });
+    const me = await sessionUser(c);
+    return c.json({ users: all.filter((u) => u.channel.type !== 'telegram' || u.id === me) });
+  });
 
   app.get('/api/users/:id', async (c) =>
     c.json(
@@ -517,18 +566,57 @@ export function createApp(engine: Engine, opts: AppOptions = {}) {
     const tg = engine.telegram;
     if (tg && inbound.callbackQueryId) tg.answerCallback(inbound.callbackQueryId).catch(() => undefined);
 
+    const text = inbound.text?.trim() ?? '';
+    const startCode = /^\/start(?:@\w+)?\s+(\S+)/i.exec(text)?.[1] ?? (/^\/start\b/i.test(text) ? '' : undefined);
     await engine.run(async (x) => {
       // R2: se crea una usuaria sintética por chat; no se guarda nombre ni datos de Telegram.
       let user = Object.values(x.db.users).find((u) => u.channel.type === 'telegram' && u.channel.chatId === inbound.chatId);
+      const allowed = (x.db.allowedChats ??= []);
+      if (user && !allowed.includes(inbound.chatId)) allowed.push(inbound.chatId); // las que ya existían quedan dentro
       if (!user) {
+        // Beta cerrada: sin código de invitación no se crea nada ni se guarda el mensaje.
+        if (opts.inviteCode && !allowed.includes(inbound.chatId)) {
+          if (startCode !== undefined && startCode === opts.inviteCode) allowed.push(inbound.chatId);
+          else {
+            await tg?.sendText(inbound.chatId, T.betaClosed()).catch(() => undefined);
+            return;
+          }
+        }
         user = engine.createUser(x, {
           id: `tg_${Math.abs(inbound.chatId)}`,
           name: 'Camila',
           channel: { type: 'telegram', chatId: inbound.chatId },
           synthetic: true,
         });
+        engine.startOnboarding(x, user.id);
+        return;
       }
-      const isStart = inbound.text?.startsWith('/start');
+      if (/^\/web\b/i.test(text)) {
+        if (!opts.sessionSecret) {
+          await tg?.sendText(inbound.chatId, T.calendarUnavailable()).catch(() => undefined);
+          return;
+        }
+        await tg?.sendText(inbound.chatId, T.loginCode(engine.createLoginCode(x, user.id))).catch(() => undefined);
+        return;
+      }
+      if (/^\/privacidad\b/i.test(text)) {
+        await tg?.sendText(inbound.chatId, T.privacy()).catch(() => undefined);
+        return;
+      }
+      if (/^\/borrar\b/i.test(text)) {
+        await engine.handleInbound(x, user.id, { action: 'del:ask', label: '/borrar' });
+        return;
+      }
+      if (inbound.action === 'del:yes') {
+        await engine.handleInbound(x, user.id, { action: 'del:yes', tgMessageId: inbound.messageId });
+        await engine.deleteUser(x, user.id);
+        return;
+      }
+      if (/^\/start\b/i.test(text) && !user.onboarded && !user.pending) {
+        engine.startOnboarding(x, user.id);
+        return;
+      }
+      const isStart = /^\/start\b/i.test(text);
       await engine.handleInbound(x, user.id, isStart ? { text: 'hola' } : { text: inbound.text, action: inbound.action, tgMessageId: inbound.messageId });
     });
     return c.json({ ok: true });

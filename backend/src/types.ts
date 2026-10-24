@@ -25,6 +25,10 @@ export interface User {
   perWeek?: number;
   /** El agente elige split y duración cada semana con el calendario (por defecto sí). `false` = modo manual: se respeta lo que ella fijó. */
   autoPlan?: boolean;
+  /** Ya pasó las preguntas de bienvenida (cuántas veces por semana y calendario). */
+  onboarded?: boolean;
+  /** Último empujón de vuelta al hábito (para no insistir: uno cada 4 días como máximo). */
+  lastNudgeAt?: string;
   /** Busca hueco en todo el horario del gym (no solo en su ventana habitual): antes del trabajo, al almuerzo o después. */
   flexTimes?: boolean;
   /** Cuánto le toma llegar al gym (lo que ella contó). Afina el calentamiento en el camino y la hora que se recomienda. */
@@ -45,7 +49,8 @@ export interface User {
 export type PendingState =
   | { kind: 'capture'; apptId: string; sentAt: string }
   | { kind: 'other_hour'; apptId: string }
-  | { kind: 'renegotiate'; apptId: string };
+  | { kind: 'renegotiate'; apptId: string }
+  | { kind: 'onboarding'; step: 'perWeek' | 'calendar' };
 
 /**
  * proposed: semana propuesta, aún sin hora elegida.
@@ -171,6 +176,12 @@ export interface DB {
   google?: Record<string, GoogleLink>;
   /** Bloques ocupados informados por el front (solo inicio y fin, ms epoch), por usuaria y semana. */
   busy?: Record<string, Record<string, Array<[number, number]>>>;
+  /** Chats de Telegram que entraron con el código de invitación (beta cerrada). */
+  allowedChats?: number[];
+  /** Códigos de un solo uso para entrar a la web desde Telegram (/web). */
+  loginCodes?: Record<string, { userId: string; exp: number }>;
+  /** Intentos fallidos de código recientes (ms epoch), para frenar adivinanzas. */
+  loginFailures?: number[];
   /** Offset del reloj de demo en ms (0 = reloj real). */
   clockOffsetMs: number;
 }

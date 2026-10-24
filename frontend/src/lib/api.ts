@@ -94,6 +94,34 @@ export function setAdminToken(token: string) {
   }
 }
 
+const SESSION_TOKEN_KEY = 'lacita.token';
+const SESSION_USER_KEY = 'lacita.tokenUser';
+
+/** Sesión de una usuaria real (se obtiene con el código de /web en Telegram). Vive solo en esta pestaña. */
+export function getSession(): { token: string; userId: string } | null {
+  try {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+    const userId = sessionStorage.getItem(SESSION_USER_KEY);
+    return token && userId ? { token, userId } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSession(s: { token: string; userId: string } | null) {
+  try {
+    if (s) {
+      sessionStorage.setItem(SESSION_TOKEN_KEY, s.token);
+      sessionStorage.setItem(SESSION_USER_KEY, s.userId);
+    } else {
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      sessionStorage.removeItem(SESSION_USER_KEY);
+    }
+  } catch {
+    /* almacenamiento bloqueado: la sesión no se recuerda */
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message);
@@ -105,6 +133,8 @@ async function req<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unk
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const token = getAdminToken();
   if (token) headers['x-admin-token'] = token;
+  const session = getSession();
+  if (session) headers.Authorization = `Bearer ${session.token}`;
 
   let res: Response;
   try {
@@ -150,6 +180,7 @@ export interface ServerEvent {
 }
 
 export const api = {
+  exchangeCode: (code: string) => req<{ token: string; userId: string }>('POST', '/auth/exchange', { code }),
   meta: () => req<Meta>('GET', '/meta'),
   users: () => req<{ users: User[] }>('GET', '/users'),
   messages: (userId: string, after?: number) =>

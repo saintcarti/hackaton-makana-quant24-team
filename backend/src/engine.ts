@@ -1,6 +1,6 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
-import { GoogleConfig, busyFromEvents, deleteEvent, listEvents, upsertEvent, withToken } from './google.js';
+import { GoogleConfig, busyFromEvents, clearAppointmentEvents, deleteEvent, listEvents, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
 import { autoDecide, type DayRoom } from './autoplan.js';
 import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
@@ -369,11 +369,116 @@ export class Engine {
       }
     }
     this.emit(c, userId, { text: T.calendarConnected() });
+    const u = c.db.users[userId];
+    if (u?.pending?.kind === 'onboarding') this.finishOnboarding(c, u);
   }
 
   disconnectGoogle(c: Ctx, userId: string) {
     this.user(c, userId);
     if (c.db.google) delete c.db.google[userId];
+  }
+
+  // ───────────────────────── bienvenida, acceso web y datos ─────────────────────────
+
+  /** Primer contacto de una usuaria nueva: bienvenida, cuántas veces por semana y, si hay Google, conectar calendario. */
+  startOnboarding(c: Ctx, userId: string) {
+    const user = this.user(c, userId);
+    user.pending = { kind: 'onboarding', step: 'perWeek' };
+    this.emit(c, userId, { text: T.welcome() });
+    this.emit(c, userId, {
+      text: T.askPerWeek(),
+      buttons: [1, 2, 3].map((n) => ({ label: T.btn.perWeek(n), action: `pw:${n}` })),
+    });
+  }
+
+  private finishOnboarding(c: Ctx, user: User) {
+    user.onboarded = true;
+    user.pending = null;
+    this.emit(c, user.id, { text: T.onboardDone() });
+    try {
+      this.startCapture(c, user.id);
+    } catch {
+      // sin huecos esta semana: el domingo se le escribe igual
+    }
+  }
+
+  private handleOnboardingAction(c: Ctx, user: User, action: string): boolean {
+    const m = /^pw:([123])$/.exec(action);
+    if (m) {
+      user.perWeek = Number(m[1]);
+      const connect = this.connectButton(c, user);
+      if (connect) {
+        user.pending = { kind: 'onboarding', step: 'calendar' };
+        this.emit(c, user.id, { text: T.askCalendar(), buttons: [connect, { label: T.btn.later, action: 'later' }] });
+      } else {
+        this.finishOnboarding(c, user);
+      }
+      return true;
+    }
+    if (action === 'later') {
+      this.finishOnboarding(c, user);
+      return true;
+    }
+    return false;
+  }
+
+  /** Código de 6 dígitos de un solo uso (10 min) para entrar a la web como esta usuaria. */
+  createLoginCode(c: Ctx, userId: string): string {
+    this.user(c, userId);
+    const codes = (c.db.loginCodes ??= {});
+    for (const [k, v] of Object.entries(codes)) if (v.exp < c.now.getTime() || v.userId === userId) delete codes[k];
+    const n = crypto.getRandomValues(new Uint32Array(1))[0]! % 1_000_000;
+    const code = String(n).padStart(6, '0');
+    codes[code] = { userId, exp: c.now.getTime() + 10 * 60_000 };
+    return code;
+  }
+
+  /** Canjea un código: devuelve el userId o null. Frena adivinanzas (máx. 10 fallos cada 10 min). */
+  exchangeLoginCode(c: Ctx, code: string): string | null {
+    const now = Date.now();
+    const fails = (c.db.loginFailures ??= []).filter((t) => now - t < 10 * 60_000);
+    c.db.loginFailures = fails;
+    if (fails.length >= 10) throw new DomainError('too_many_attempts', 'Demasiados intentos. Espera unos minutos.', 429);
+    const entry = c.db.loginCodes?.[code];
+    if (!entry || entry.exp < c.now.getTime()) {
+      fails.push(now);
+      return null;
+    }
+    delete c.db.loginCodes![code];
+    return entry.userId;
+  }
+
+  /** Borra todo de una usuaria: citas, chat, conexión de calendario (revocada) y sus eventos en Google. */
+  async deleteUser(c: Ctx, userId: string) {
+    const user = this.user(c, userId);
+    const chatId = user.channel.type === 'telegram' ? user.channel.chatId : undefined;
+    const g = this.google;
+    const link = c.db.google?.[userId];
+    if (g && link) {
+      try {
+        await withToken(g, link, c.now.getTime(), (t) => clearAppointmentEvents(t, c.now.getTime()));
+      } catch (err) {
+        console.warn(JSON.stringify({ evt: 'gcal_delete_user_error', message: (err as Error).message }));
+      }
+      try {
+        await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(link.refreshToken)}`, { method: 'POST' });
+      } catch {
+        // la revocación es un extra: igual se borra el permiso guardado
+      }
+    }
+    if (chatId != null && this.deps.telegram) {
+      await this.deps.telegram.sendText(chatId, T.deleted()).catch(() => undefined);
+    }
+    for (const a of Object.values(c.db.appointments)) if (a.userId === userId) delete c.db.appointments[a.id];
+    c.db.messages = c.db.messages.filter((m) => m.userId !== userId);
+    c.db.events = c.db.events.filter((e) => e.userId !== userId);
+    if (c.db.google) delete c.db.google[userId];
+    if (c.db.busy) delete c.db.busy[userId];
+    for (const [k, v] of Object.entries(c.db.loginCodes ?? {})) if (v.userId === userId) delete c.db.loginCodes![k];
+    if (chatId != null) c.db.allowedChats = (c.db.allowedChats ?? []).filter((x) => x !== chatId);
+    delete c.db.users[userId];
+    c.outbox = c.outbox.filter((m) => m.userId !== userId);
+    c.edits = [];
   }
 
   // ───────────────────────── usuarios ─────────────────────────
@@ -819,7 +924,22 @@ export class Engine {
       this.chooseSlot(c, user.id, apptId, iso);
       return;
     }
+    if (this.handleOnboardingAction(c, user, action)) return;
     switch (action) {
+      case 'del:ask':
+        this.emit(c, user.id, {
+          text: T.deleteAsk(),
+          buttons: [
+            { label: T.btn.deleteYes, action: 'del:yes' },
+            { label: T.btn.deleteNo, action: 'del:no' },
+          ],
+        });
+        return;
+      case 'del:no':
+        this.emit(c, user.id, { text: T.deleteCancelled() });
+        return;
+      case 'del:yes':
+        return; // lo ejecuta el webhook (es asíncrono y borra al usuario)
       case 'other_hour': {
         const p = user.pending;
         if (p && 'apptId' in p) user.pending = { kind: 'other_hour', apptId: p.apptId };
@@ -971,6 +1091,21 @@ export class Engine {
       return;
     }
 
+    if (user.pending?.kind === 'onboarding') {
+      // Contesta con un número o vuelve a mostrar la pregunta.
+      const n = /\b([123])\b/.exec(text)?.[1];
+      if (n && user.pending.step === 'perWeek') {
+        this.handleOnboardingAction(c, user, `pw:${n}`);
+        return;
+      }
+      if (user.pending.step === 'calendar') {
+        this.finishOnboarding(c, user);
+        return;
+      }
+      this.emit(c, user.id, { text: T.askPerWeek(), buttons: [1, 2, 3].map((k) => ({ label: T.btn.perWeek(k), action: `pw:${k}` })) });
+      return;
+    }
+
     // Hora o día dicho en texto libre ("martes 20:30", "cámbiala para las 20:00"). No se re-agenda una pregunta
     // ("¿qué músculos trabajo el lunes?") ni los mensajes de otra intención.
     const p = user.pending;
@@ -1090,6 +1225,27 @@ export class Engine {
           const a = this.applyDefault(c, user.id);
           actions.push({ userId: user.id, action: 'default_applied', apptId: a.id });
         }
+      }
+    }
+
+    // g. volver al hábito: dos citas seguidas sin hacerse y nada agendado → un empujón suave (una vez cada 4 días)
+    for (const user of Object.values(c.db.users)) {
+      if (!user.onboarded || user.pending || user.painPause || local.hour < 9 || local.hour >= 20) continue;
+      if (user.lastNudgeAt && c.now.getTime() - Date.parse(user.lastNudgeAt) < 4 * 86400_000) continue;
+      const mine = Object.values(c.db.appointments)
+        .filter((a) => a.userId === user.id && a.startsAt && a.status !== 'skipped')
+        .sort((x, y) => x.startsAt!.localeCompare(y.startsAt!));
+      if (mine.some((a) => a.status === 'proposed' || a.status === 'confirmed' || a.status === 'reminded')) continue;
+      const lastTwo = mine.slice(-2);
+      if (lastTwo.length < 2 || !lastTwo.every((a) => a.status === 'lapsed')) continue;
+      if (c.now.getTime() - Date.parse(lastTwo[1]!.startsAt!) < 2 * 86400_000) continue;
+      user.lastNudgeAt = c.now.toISOString();
+      this.emit(c, user.id, { text: T.comeback() });
+      try {
+        const a = this.startCapture(c, user.id);
+        actions.push({ userId: user.id, action: 'comeback', apptId: a.id });
+      } catch {
+        // sin huecos: queda solo el mensaje
       }
     }
 

@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, setSession } from '../lib/api';
 import type { GoogleStatus } from '../lib/api-types';
 import { googleClientId, preloadGoogle } from '../lib/google';
 
 interface Props {
   onGoogle: () => Promise<void>;
   onDemo: () => void;
+  /** Entró una usuaria real con el código de Telegram. */
+  onCode: (userId: string) => void;
   telegramBot?: string;
 }
 
-export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
+export default function Login({ onGoogle, onDemo, onCode, telegramBot }: Props) {
+  const [code, setCode] = useState('');
+  const [codeBusy, setCodeBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +43,25 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
       setError(e instanceof Error ? e.message : 'No pudimos entrar con Google.');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function enterWithCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError('El código tiene 6 dígitos. Escribe /web en el bot de Telegram para pedir uno.');
+      return;
+    }
+    setCodeBusy(true);
+    setError(null);
+    try {
+      const r = await api.exchangeCode(code.trim());
+      setSession(r);
+      onCode(r.userId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No pudimos validar el código.');
+    } finally {
+      setCodeBusy(false);
     }
   }
 
@@ -99,6 +122,26 @@ export default function Login({ onGoogle, onDemo, telegramBot }: Props) {
             </a>
           )}
         </div>
+        <form className="login-code" onSubmit={enterWithCode}>
+          <label htmlFor="login-code-input" className="small muted">
+            ¿Ya hablaste con el bot? Escribe /web en Telegram y entra con tu código
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              id="login-code-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              style={{ flex: 1 }}
+            />
+            <button className="btn" type="submit" disabled={codeBusy}>
+              {codeBusy ? 'Entrando…' : 'Entrar con mi código'}
+            </button>
+          </div>
+        </form>
         {serverGoogle && (
           <div className="notice">
             {srv?.connected
