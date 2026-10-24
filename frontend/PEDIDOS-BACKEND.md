@@ -126,19 +126,19 @@ Benjamín renombró la app a **gogym** (23-oct). La web ya dice gogym. Para que 
 
 **R4 en la web:** la pausa sale de `user.painPause`. El botón «Ya lo conversé con un profesional» le escribe eso mismo al agente, que limpia la pausa y responde «Retomamos: …». Ojo: el mensaje de la rutina (`tone.ts:53`) también nombra al kinesiólogo; la web ya no usa esa palabra para detectar dolor, solo la frase de la derivación.
 
-## 7. Frases libres que se interpretan mal (probado el 24-oct contra el backend de `origin/frontend/investigacion` @ ed4de99)
+## 7. Frases libres que se interpretan mal (probado el 24-oct contra el backend con f527e5f)
 
-**Por qué importa:** el jurado puede escribirle al agente con sus propias palabras en el demo. Camila sintética, reloj simulado en lunes 26-oct 18:31, días lun/mié/vie, ventana 19:00–21:00, una cita agendada. Se escribió cada frase al chat y se leyó la respuesta:
+**Por qué importa:** el jurado puede escribirle al agente con sus propias palabras en el demo. Camila sintética, reloj simulado en lunes 26-oct 18:30, días lun/mié/vie, ventana 19:00–21:00, una cita agendada. Se escribió cada frase al chat y se leyó la respuesta:
 
 | Frase | Respuesta del agente | Qué debería pasar |
 |---|---|---|
+| «cambialo para las 11:15 de la noche» | «A las 23:15 el gym está cerrado: abre de 06:00 a 22:00. Estas son las horas que sí calzan…» | Bien (corregido en f527e5f; antes la movía a una hora que no pidió). |
 | «muevela a las 9 de la noche» | «la moví al lunes 26 a las 21:00» | Bien. |
-| «hoy a las 21:30» | «la moví al lunes 26 a las 21:30» | Bien. |
-| «el jueves a las 19:15» | «la moví al jueves 29 a las 19:15» | Bien (aunque el jueves no es uno de sus días; ver abajo). |
-| «mueve a las 8 de la mañana» | «la moví al lunes 26 a las 20:00» | Ignora «de la mañana» y 08:00 del lunes ya pasó: debería proponer el martes 08:00 o decir que no calza. |
-| «mañana a las 20:00» | «la moví al lunes 26 a las 20:00» | Ignora «mañana» (martes 27): debería moverla al martes o avisar que no es uno de sus días. |
-| «cambialo para las 11:15 de la noche» | una vez: «la moví al miércoles 28 a las 11:15»; otra vez: «… a las 19:15» | «11:15 de la noche» es 23:15, fuera del horario del gym (cierra 22:00 en la web, 23:00 por defecto en el backend): debería decir que no alcanza y ofrecer lo más cercano. Hoy mueve a una hora que no pidió y no lo dice. |
+| «el jueves a las 19:15» | «Listo: jueves 29 a las 19:15» | Bien (aunque el jueves no es uno de sus días). |
+| «hoy a las 21:30» | «A las 21:30 el gym está cerrado: abre de 06:00 a 22:00» | Calza en intención, pero el texto miente: el gym abre hasta las 22:00; lo que no cabe es la sesión de 50 min. Debería decir «no alcanza a terminar antes del cierre». |
+| «mueve a las 8 de la mañana» | «Listo: lunes 26 a las 20:00» | Ignora «de la mañana» y las 08:00 del lunes ya pasaron: debería proponer el martes 08:00 o decir que no calza. |
+| «mañana a las 20:00» | «Te ayudo con una sola cosa: tu cita…» | No entiende «mañana»: debería leerlo como martes 27 y, como no es uno de sus días, avisarlo y ofrecer lo más cercano. |
 
-**Pedido:** (1) leer «de la mañana / de la tarde / de la noche» y pasarlo a 24 h; (2) tratar «mañana» como el día siguiente; (3) si la hora o el día pedidos caen fuera del horario del gym o de sus días, decirlo y ofrecer el hueco más cercano en vez de elegir otro en silencio; (4) sumar estos casos a `backend/test/nlu.test.ts`.
+**Pedido:** (1) leer «de la mañana / de la tarde / de la noche» y pasarlo a 24 h; (2) tratar «mañana» como el día siguiente; (3) si la hora o el día pedidos no calzan, decir por qué (cierre del gym, sesión que no cabe, día que no es suyo) y ofrecer el hueco más cercano en vez de elegir otro en silencio; (4) sumar estos casos a `backend/test/nlu.test.ts`.
 
-**Mientras tanto, para el demo:** usar los botones y las frases que sí funcionan («hoy no puedo, se alargó la reunión», «hoy a las 21:30», «el jueves a las 19:15»).
+**Mientras tanto, para el demo:** usar los botones y las frases que sí funcionan («hoy no puedo, se alargó la reunión», «muevela a las 9 de la noche», «el jueves a las 19:15»).
