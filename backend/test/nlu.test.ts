@@ -172,7 +172,7 @@ describe('horas con "de la noche" y gimnasio cerrado (bug de Benjamin)', () => {
     await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action }); // lunes 19:15
     const before = (await appts()).find((a) => a.status === 'confirmed').startsAt;
     const r = await say('cambialo para las 11:15 de la noche');
-    expect(r.at(-1).text).toMatch(/el gym está cerrado: abre de 05:30 a 23:00/);
+    expect(r.at(-1).text).toMatch(/el gym está cerrado: abre de 06:00 a 22:00/);
     expect(r.at(-1).buttons.some((b: any) => b.action.startsWith('slot:'))).toBe(true);
     expect((await appts()).find((a) => a.status === 'confirmed').startsAt).toBe(before);
   });
@@ -181,7 +181,7 @@ describe('horas con "de la noche" y gimnasio cerrado (bug de Benjamin)', () => {
     const { call, appts, say } = await setup('2026-10-25T23:00:00.000Z');
     const cap = await call(`${u}/weekly-capture`);
     await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action });
-    await say('cambialo para las 10 de la noche');
-    expect((await appts()).find((a) => a.status === 'confirmed').local.time).toBe('22:00');
+    await say('cambialo para las 9 de la noche');
+    expect((await appts()).find((a) => a.status === 'confirmed').local.time).toBe('21:00');
   });
 });

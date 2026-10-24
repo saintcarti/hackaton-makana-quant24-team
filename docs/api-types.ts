@@ -46,16 +46,16 @@ export interface User {
   window: { start: string; end: string };
   preferredTime: string;
   /** Horario del gym ("HH:MM"). Si falta, solo manda la ventana. Se cambia con PATCH /users/:id/preferences. */
-  gymHours?: { open: string; close: string };
+  gymHours?: { open: string; close: string }; // por defecto 06:00–22:00, todos los días
   /** Duración de la sesión en minutos (30 | 40 | 50 | 60). Por defecto 40. */
   sessionMin?: number;
-  /** Veces por semana que quiere ir (1 | 2 | 3). Hoy el flujo dominical agenda una; el resto es fase 2. */
+  /** Días por semana que quiere ir (1 a 7). Con 2 o más, en cuentas reales el agente arma la semana completa y ella la confirma. */
   perWeek?: number;
   /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
   days?: number[];
   /** El agente elige split y duración cada semana con el calendario (por defecto sí, mientras exista `perWeek`). `false` = modo manual. */
   autoPlan?: boolean;
-  /** Busca hueco en todo el horario del gym (`gymHours`, por defecto 05:30–23:00) y no solo en `window`. Por defecto true. */
+  /** Busca hueco en todo el horario del gym (`gymHours`, por defecto 06:00–22:00) y no solo en `window`. Por defecto true. */
   flexTimes?: boolean;
   /** Cuánto le toma llegar al gym, según lo que ella contó (minutos caminando y trotando). */
   commute?: { walkMin: number; jogMin: number };
@@ -100,6 +100,8 @@ export interface AppointmentView extends Appointment {
   wasMoved: boolean;
   /** Foco de la sesión según el split (solo grupos, nunca ejercicios). Ausente sin split o con pausa por dolor. */
   focus?: { dayTypeId: string; label: string; groups: string[] };
+  /** Sesiones de una semana armada de una vez comparten `planId` mientras están en `proposed` (`options[0]` = la hora propuesta). */
+  planId?: string;
   /** Rutina armada con el tiempo libre real de ese día (calendario conectado u ocupación informada). Ausente con pausa por dolor (R4) o si hay menos de 20 min. */
   routine?: Routine;
 }

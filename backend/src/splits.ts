@@ -82,7 +82,8 @@ export const SPLITS: SplitDef[] = [
     id: 'ppl',
     label: 'Push / Pull / Legs',
     blurb: 'Empuje, tracción y piernas, cada uno en su propio día.',
-    variants: [3, 6],
+    // 7 solo en el backend (un día más: los mismos focos giran otra vez), para quien quiera ir los siete días.
+    variants: [3, 6, 7],
     cycle: [PUSH, PULL, LEGS],
   },
   {

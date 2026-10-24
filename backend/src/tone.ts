@@ -102,7 +102,7 @@ export const T = {
   nameInvalid: () => 'Escribe un nombre corto, solo con letras (hasta 24). Por ejemplo: Xavi.',
   nameSaved: (name: string) => `Mucho gusto, ${name}.`,
   nameChanged: (name: string) => `Listo, desde ahora te llamo ${name}.`,
-  askPerWeek: () => '¿Cuántas veces por semana quieres ir?',
+  askPerWeek: () => '¿Cuántos días a la semana quieres ir? Elige de 1 a 7: el gym abre todos los días de 06:00 a 22:00.',
   askCalendar: () =>
     'Conecta tu Google Calendar para que mire tus reuniones y encuentre los huecos (antes del trabajo, al almuerzo o después). Solo leo horas ocupadas y creo tus citas; lo puedes desconectar cuando quieras.',
   onboardDone: () => 'Listo, quedó configurado. Te escribo el domingo con tu semana. Mientras tanto, estos son los huecos que veo:',
@@ -113,6 +113,18 @@ export const T = {
   privacy: () =>
     'Guardo solo lo necesario: tus citas, este chat y, si lo conectas, tus horas ocupadas (sin títulos de reuniones en mis datos) y el permiso de tu calendario. Esta es una beta con datos de prueba. Escribe /borrar para eliminar todo.',
   comeback: () => 'Hace unos días no nos vimos y está bien: las semanas se complican. Empecemos suave, con una sola sesión en el hueco que más te acomode.',
+  weekPlan: (name: string, lines: string[], minutes: number, wanted: number) =>
+    [
+      `${name}, esta es tu semana (${lines.length} ${lines.length === 1 ? 'sesión' : 'sesiones'} de hasta ${minutes} min):`,
+      ...lines.map((l) => `• ${l}`),
+      ...(lines.length < wanted ? [`Con tu calendario esta semana solo caben ${lines.length} de las ${wanted} que querías.`] : []),
+      'Si no contestas, la dejo confirmada. Si una reunión se alarga, corro la sesión sola.',
+    ].join('\n'),
+  weekConfirmed: (lines: string[], connected: boolean) =>
+    [`Listo, tu semana quedó agendada${connected ? ' en tu Google Calendar' : ''}:`, ...lines.map((l) => `• ${l}`)].join('\n'),
+  planEdit: () => 'Dime qué día cambiar y a qué hora, por ejemplo "el miércoles a las 20:00".',
+  planWhichDay: () => 'No tengo una sesión ese día. Dime uno de los días de tu semana y la hora, por ejemplo "el miércoles a las 20:00".',
+  planBusy: () => 'Esa hora se cruza con otra sesión de tu semana. Prueba con otra hora.',
   outsideGym: (when: string, open: string, close: string) =>
     `A las ${when} el gym está cerrado: abre de ${open} a ${close}. Estas son las horas que sí calzan con tu calendario.`,
   slotChosenCal: (label: string, venue: string) => `Listo: ${label}, ${venue}. Ya quedó en tu Google Calendar.`,
@@ -142,6 +154,8 @@ export const T = {
   btn: {
     perWeek: (n: number) => (n === 1 ? '1 vez' : `${n} veces`),
     later: 'Más tarde',
+    planOk: '✅ Confirmar mi semana',
+    planEdit: 'Cambiar un día',
     deleteYes: 'Sí, borrar todo',
     deleteNo: 'No, mejor no',
     otherHour: 'Otra hora',

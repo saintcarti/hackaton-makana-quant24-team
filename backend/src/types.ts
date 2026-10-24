@@ -51,7 +51,8 @@ export type PendingState =
   | { kind: 'capture'; apptId: string; sentAt: string }
   | { kind: 'other_hour'; apptId: string }
   | { kind: 'renegotiate'; apptId: string }
-  | { kind: 'onboarding'; step: 'name' | 'perWeek' | 'calendar' };
+  | { kind: 'onboarding'; step: 'name' | 'perWeek' | 'calendar' }
+  | { kind: 'plan'; sentAt: string };
 
 /**
  * proposed: semana propuesta, aún sin hora elegida.
@@ -86,6 +87,8 @@ export interface Appointment {
   eventId?: string;
   /** Veces que el agente la corrió solo porque el calendario cambió (tope 2, para no pelear con la usuaria). */
   autoShifts?: number;
+  /** Sesión de una semana armada de una vez (varios días a la semana): comparten `planId` hasta confirmarse. */
+  planId?: string;
   /** Ya avisó que choca con una reunión y no hay hueco cercano (un solo aviso). */
   conflictNoticed?: boolean;
   /** Ya se mandó la pausa activa de ese día de gimnasio (una sola). */

@@ -24,7 +24,7 @@ const office = ['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29', '2026-10
   { start: `${d}T14:30:00-03:00`, end: `${d}T19:00:00-03:00` },
 ]);
 
-describe('horarios flexibles: el gym abre 05:30–23:00 y el calendario está lleno de 08 a 19', () => {
+describe('horarios flexibles: el gym abre 06:00–22:00 y el calendario está lleno de 08 a 19', () => {
   it('las partes del día', () => {
     expect(dayPart(zonedToUtc(2026, 10, 26, 6, 30)).id).toBe('morning');
     expect(dayPart(zonedToUtc(2026, 10, 26, 13, 0)).id).toBe('lunch');
@@ -84,7 +84,7 @@ describe('horarios flexibles: el gym abre 05:30–23:00 y el calendario está ll
   it('el calendario del día muestra todo el horario del gym', async () => {
     const { call } = await setup('2026-10-25T23:00:00.000Z');
     const week = await call(`${u}/calendar?weekOf=2026-10-26`, {}, 'GET');
-    expect(week.hourRange).toEqual({ from: '05:00', to: '23:30' });
+    expect(week.hourRange).toEqual({ from: '05:30', to: '22:30' });
   });
 });
 

@@ -18,7 +18,7 @@ export function seedCamila(db: DB, now: Date): User {
     window: { start: '19:00', end: '21:00' },
     preferredTime: '19:15',
     flexTimes: true,
-    gymHours: { open: '05:30', close: '23:00' },
+    gymHours: { open: '06:00', close: '22:00' },
     channel: { type: 'sim' },
     synthetic: true,
     consecutiveMoves: 0,

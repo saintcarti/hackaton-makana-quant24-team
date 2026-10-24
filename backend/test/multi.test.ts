@@ -79,7 +79,9 @@ describe('bienvenida', () => {
     expect(me.perWeek).toBe(2);
     expect(me.onboarded).toBe(true);
     const last = t.sent.at(-1)!;
-    expect(last.buttons?.some((b: any) => b.action.startsWith('slot:'))).toBe(true);
+    // con 2 días por semana el agente arma la semana completa y la deja para confirmar
+    expect(last.text).toMatch(/esta es tu semana \(2 sesiones/);
+    expect(last.buttons?.some((b: any) => b.action === 'plan:ok')).toBe(true);
   });
 });
 
@@ -201,8 +203,8 @@ describe('cada persona es llamada por su nombre, no por «Camila»', () => {
     expect((await t.engine.read((c) => c.db.users[UID]!)).name).toBe('Xavier');
     expect(t.sent.some((m) => /Mucho gusto, Xavier/.test(m.text))).toBe(true);
     await t.press('pw:2');
-    expect(t.sent.map((m) => m.text).join('\n')).toMatch(/Hola, Xavier\./);
-    expect(t.sent.map((m) => m.text).join('\n')).not.toMatch(/Hola, Camila/);
+    expect(t.sent.map((m) => m.text).join('\n')).toMatch(/Xavier, esta es tu semana/);
+    expect(t.sent.map((m) => m.text).join('\n')).not.toMatch(/Camila/);
   });
 
   it('un nombre inválido se vuelve a pedir y el nombre se limpia', async () => {
