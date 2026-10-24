@@ -69,7 +69,7 @@ export default function Login({ onGoogle, onDemo, onCode, telegramBot }: Props) 
   return (
     <main className="login">
       <section className="login-story">
-        <div className="brand">gogym</div>
+        <div className="brand"><img className="brand-logo brand-logo-lg" src="/logo.png" alt="gogym" height="44" /></div>
         <div>
           <div className="eyebrow">Domingo, 23:55</div>
           <h1 className="display login-quote">«Mañana parto.»</h1>

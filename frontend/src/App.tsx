@@ -753,7 +753,7 @@ export default function App() {
     <>
       <div ref={sentinelRef} className="scroll-sentinel" aria-hidden="true" />
       <header className="topbar" data-scrolled={scrolled ? 'true' : undefined}>
-        <span className="brand">gogym</span>
+        <span className="brand"><img className="brand-logo" src="/logo.png" alt="gogym" height="26" /></span>
         <div className="seg" role="group" aria-label="Vista">
           <button aria-pressed={view === 'camila'} onClick={() => setView('camila')}>
             <span className="hide-sm">Lo que ve Camila</span>

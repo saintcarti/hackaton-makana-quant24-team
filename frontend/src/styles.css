@@ -2079,3 +2079,16 @@ select {
   gap: 6px;
   margin-top: 8px;
 }
+
+/* Logo de gogym: gris oscuro sobre fondo claro; en modo oscuro se invierte a claro. */
+.brand-logo {
+  display: block;
+  height: 26px;
+  width: auto;
+}
+.brand-logo-lg {
+  height: 44px;
+}
+[data-theme='dark'] .brand-logo {
+  filter: invert(1) brightness(1.15);
+}
