@@ -225,7 +225,18 @@ export function parseClock(text: string): { hour: number; minute: number } | nul
     if (hour >= 1 && hour <= 11) hour += 12; // "a las 8" en un gym vespertino = 20:00
     hits.push({ index: m.index!, end: m.index! + m[0].length, hour, minute: 0 });
   }
+  // «las 10 de la noche», «8 de la tarde»: sin «a las» ni minutos.
+  for (const m of t.matchAll(/\b(?:las?\s+)?([01]?\d|2[0-3])\s*(?=de la (?:noche|tarde|ma[ñn]ana)\b)/g)) {
+    if (overlaps(m.index!, m.index! + m[0].length)) continue;
+    hits.push({ index: m.index!, end: m.index! + m[0].length, hour: Number(m[1]), minute: 0 });
+  }
   if (!hits.length) return null;
+  // «11:15 de la noche» / «8 de la tarde» / «7 pm»: el momento del día que dice el texto manda sobre la hora suelta.
+  for (const h of hits) {
+    const tail = t.slice(h.end, h.end + 18);
+    if (/^\s*(de la noche|de la tarde|pm)\b/.test(tail) && h.hour >= 1 && h.hour < 12) h.hour += 12;
+    else if (/^\s*(de la ma[ñn]ana|am)\b/.test(tail) && h.hour === 12) h.hour = 0;
+  }
   hits.sort((x, y) => x.index - y.index);
   const target = hits.find((h) => /(?:para|pasar(?:la|lo)?|mover(?:la|lo)?|cambiar(?:la|lo)?)\s+(?:a\s+)?(?:las?\s+)?$/.test(t.slice(0, h.index)));
   const pick = target ?? hits[hits.length - 1]!;
@@ -233,6 +244,15 @@ export function parseClock(text: string): { hour: number; minute: number } | nul
 }
 
 /** Cláusula que explica el motivo ("debido a…", "porque…"): lo que dice no es la hora pedida. */
+/** ¿La sesión que parte en `when` cabe entera dentro del horario del gimnasio? Sin horario conocido, sí. */
+export function withinGymHours(user: User, when: Date): boolean {
+  const gym = user.gymHours ?? (user.flexTimes ? { open: '05:30', close: '23:00' } : null);
+  if (!gym) return true;
+  const p = localParts(when);
+  const m = p.hour * 60 + p.minute;
+  return m >= minutesOf(gym.open) && m + (user.sessionMin ?? 40) <= minutesOf(gym.close);
+}
+
 const REASON = /\b(?:debido a|porque|ya que|pues)\b/;
 
 /**

@@ -6,7 +6,7 @@ import { autoDecide, type DayRoom } from './autoplan.js';
 import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
 import { buildBreak, buildRoutine, buildTravelWarmup } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
-import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, slotButtonLabel, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
+import { Busy, PREFERRED_DAYS, withinGymHours, availableMinutes, maxFitMinutes, slotButtonLabel, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
 import { Store } from './store.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { T } from './tone.js';
@@ -988,6 +988,12 @@ export class Engine {
         when = await this.guessWhen(c, user, text);
       }
       if (when && when.toISOString() !== target.startsAt) {
+        if (!withinGymHours(user, when)) {
+          // El gym está cerrado a esa hora: no se agenda; se explica y se proponen horas que sí calzan.
+          const gym = user.gymHours ?? { open: '05:30', close: '23:00' };
+          this.startCapture(c, user.id, { describe: () => T.outsideGym(formatTime(when), gym.open, gym.close) });
+          return;
+        }
         this.place(c, user, target, when, target.startsAt ? 'move' : 'user');
         if (intent === 'warmup' && !user.painPause) this.emit(c, user.id, { text: this.travelWarmupText(c, user, target) });
         return;

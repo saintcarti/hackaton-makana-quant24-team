@@ -95,6 +95,8 @@ export const T = {
     [`Tienes un rato libre entre reuniones (${gap} min). Una pausa activa para soltar el cuerpo antes del gym:`, ...moves.map((m) => `• ${m}`), 'Sin apuro y sin dolor; si algo te molesta, para.'].join('\n'),
   noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
+  outsideGym: (when: string, open: string, close: string) =>
+    `A las ${when} el gym está cerrado: abre de ${open} a ${close}. Estas son las horas que sí calzan con tu calendario.`,
   slotChosenCal: (label: string, venue: string) => `Listo: ${label}, ${venue}. Ya quedó en tu Google Calendar.`,
   movedCal: (label: string) => `Hecho, la moví al ${label} y actualicé tu Google Calendar. Mover no es fallar.`,
   autoShifted: (from: string, to: string) =>

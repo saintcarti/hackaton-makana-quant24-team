@@ -157,3 +157,31 @@ describe('el agente elige split y duración (pedido §6)', () => {
     expect((await call(u, {}, 'GET')).user.split).toBeUndefined();
   });
 });
+
+describe('horas con "de la noche" y gimnasio cerrado (bug de Benjamin)', () => {
+  it('"11:15 de la noche" son las 23:15, no las 11:15', () => {
+    expect(parseClock('cambialo para las 11:15 de la noche')).toEqual({ hour: 23, minute: 15 });
+    expect(parseClock('mejor a las 8 de la tarde')).toEqual({ hour: 20, minute: 0 });
+    expect(parseClock('a las 7 pm')).toEqual({ hour: 19, minute: 0 });
+    expect(parseClock('a las 12:30 de la mañana')).toEqual({ hour: 0, minute: 30 });
+  });
+
+  it('si el gym está cerrado a esa hora no mueve la cita: lo explica y propone horas que calzan', async () => {
+    const { call, appts, say } = await setup('2026-10-25T23:00:00.000Z');
+    const cap = await call(`${u}/weekly-capture`);
+    await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action }); // lunes 19:15
+    const before = (await appts()).find((a) => a.status === 'confirmed').startsAt;
+    const r = await say('cambialo para las 11:15 de la noche');
+    expect(r.at(-1).text).toMatch(/el gym está cerrado: abre de 05:30 a 23:00/);
+    expect(r.at(-1).buttons.some((b: any) => b.action.startsWith('slot:'))).toBe(true);
+    expect((await appts()).find((a) => a.status === 'confirmed').startsAt).toBe(before);
+  });
+
+  it('una hora tarde pero dentro del horario del gym sí se agenda', async () => {
+    const { call, appts, say } = await setup('2026-10-25T23:00:00.000Z');
+    const cap = await call(`${u}/weekly-capture`);
+    await call(`${u}/messages`, { action: cap.replies[0].buttons[0].action });
+    await say('cambialo para las 10 de la noche');
+    expect((await appts()).find((a) => a.status === 'confirmed').local.time).toBe('22:00');
+  });
+});

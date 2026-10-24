@@ -212,6 +212,10 @@ Con `user.flexTimes` (por defecto sí) la ventana 19:00–21:00 deja de ser un l
 
 Al apretar un botón, el mensaje queda con la elección (`Message.chosen`, p. ej. «Lun 26 · 13:45 · almuerzo») y sin `buttons`; en Telegram el mensaje se edita («✔ Lun 26 · 13:45 · almuerzo») y se le quita el teclado. Si ella responde escribiendo, o llega una propuesta nueva, o la cita se confirma/mueve/cierra, los botones viejos (horarios, «Otra hora», «Esta semana no», «Mueve», «Listo») se limpian también. La respuesta de ella en el espejo del chat es la etiqueta del botón, no el código. Ojo con el polling `?after=n`: solo trae mensajes nuevos, así que un mensaje viejo ya cargado no se entera de que perdió los botones; la web debe ocultar los de un mensaje que ya tiene una respuesta de ella después (`Chat.tsx` lo hace).
 
+### El gimnasio cerrado
+
+Una hora pedida en texto libre se valida contra `gymHours` (por defecto 05:30–23:00): la sesión tiene que caber entera. Si no cabe («cámbialo para las 11:15 de la noche» = 23:15), la cita **no se mueve**: el agente explica «A las 23:15 el gym está cerrado: abre de 05:30 a 23:00…» y manda una propuesta nueva con horas que sí calzan. «de la noche / de la tarde / pm» suben la hora a formato de 24 h; «de la mañana / am» la dejan.
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |
