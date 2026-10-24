@@ -104,6 +104,11 @@ export default function Chat({
   }
 
   async function tap(e: MouseEvent, m: Message, b: Button) {
+    // Botón-enlace (p. ej. «Conectar mi calendario»): se abre en otra pestaña y NO se responde al agente.
+    if (b.url) {
+      window.open(b.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (e.detail > 1 || keyboardLocked || m !== lastWithButtons) return;
     const key = msgKey(m);
     setAnsweredKey(key);
@@ -166,7 +171,7 @@ export default function Chat({
                     key={b.action}
                     type="button"
                     onClick={(e) => tap(e, m, b)}
-                    disabled={keyboardLocked || m !== lastWithButtons}
+                    disabled={b.url ? false : keyboardLocked || m !== lastWithButtons}
                   >
                     {b.label}
                   </button>
