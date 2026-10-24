@@ -1,4 +1,6 @@
-export type Intent = 'warmup' | 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
+import { ADVISE } from './advice.js';
+
+export type Intent = 'advise' | 'warmup' | 'routine' | 'resume' | 'move' | 'done' | 'skip_week' | 'pain' | 'start' | 'propose' | 'connect' | 'other_hour' | 'unknown';
 
 const PAIN = /\b(duele|dolor|dolores|lesi[oó]n|lesionad[oa]|molestia|tir[oó]n|contractura|rodilla|espalda|lumbar|cervical)\b/;
 const RESUME = /\b(ya|lo)\b.*\b(convers|habl|consult|vi|fui|revis)\w*\b.*\b(kinesi\w*|m[eé]dic\w*|deport[oó]log\w*|profesional)\b/;
@@ -21,6 +23,7 @@ export function classifyByRules(text: string): Intent {
   if (!t) return 'unknown';
   if (PAIN.test(t)) return 'pain';
   if (RESUME.test(t)) return 'resume';
+  if (ADVISE.test(t)) return 'advise';
   if (WARMUP.test(t)) return 'warmup';
   if (ROUTINE.test(t)) return 'routine';
   if (CONNECT.test(t)) return 'connect';

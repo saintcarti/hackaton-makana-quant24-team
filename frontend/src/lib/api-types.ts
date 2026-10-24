@@ -53,6 +53,8 @@ export interface User {
   days?: number[];
   /** El agente elige split y duración cada semana con el calendario (por defecto sí, mientras exista `perWeek`). `false` = modo manual. */
   autoPlan?: boolean;
+  /** Cuánto le toma llegar al gym, según lo que ella contó (minutos caminando y trotando). */
+  commute?: { walkMin: number; jogMin: number };
   /** Split elegido; ids: fullbody | upper-lower | ppl | torso-piernas-brazos | cinco-dias. Se cambia con PATCH /users/:id/preferences { split }. */
   split?: { id: string; sessions: number };
   /** R4: ISO del último mensaje de dolor. Mientras exista, las citas no llevan `focus`. Se limpia cuando ella dice que ya lo conversó con un profesional. */

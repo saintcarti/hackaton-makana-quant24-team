@@ -1,3 +1,4 @@
+import type { Commute } from './advice.js';
 import type { Routine } from './routine.js';
 
 export type ChannelKind = 'sim' | 'telegram';
@@ -24,6 +25,8 @@ export interface User {
   perWeek?: number;
   /** El agente elige split y duración cada semana con el calendario (por defecto sí). `false` = modo manual: se respeta lo que ella fijó. */
   autoPlan?: boolean;
+  /** Cuánto le toma llegar al gym (lo que ella contó). Afina el calentamiento en el camino y la hora que se recomienda. */
+  commute?: Commute;
   /** Días que puede ir (0 = domingo … 6 = sábado). Por defecto lun, mié, vie. */
   days?: number[];
   /** Split elegido (grupos musculares por sesión). Sin ejercicios, series ni repeticiones. */

@@ -1,8 +1,9 @@
 import { buildIcs, googleCalendarUrl } from './ics.js';
 import { Intent, LlmParser, classifyByRules } from './intent.js';
-import { GoogleConfig, busyFromEvents, upsertEvent, withToken } from './google.js';
+import { GoogleConfig, busyFromEvents, listEvents, upsertEvent, withToken } from './google.js';
 import { describeDayType, getDayType, isValidChoice, planSplit, type Candidate, type FixedSession, type SplitChoice } from './splits.js';
 import { autoDecide, type DayRoom } from './autoplan.js';
+import { ASKS_SCHEDULE, mixedTravelMinutes, parseCommute, parseMeetingMention } from './advice.js';
 import { buildBreak, buildRoutine, buildTravelWarmup } from './routine.js';
 import { MUSCLE_GROUPS } from './splits.js';
 import { Busy, PREFERRED_DAYS, availableMinutes, maxFitMinutes, nextSlots, parseWhen, renegotiationSlots } from './slots.js';
@@ -349,17 +350,18 @@ export class Engine {
 
   // ───────────────────────── M1: captura dominical ─────────────────────────
 
-  startCapture(c: Ctx, userId: string): Appointment {
+  startCapture(c: Ctx, userId: string, opts: { extraBusy?: Busy[]; describe?: (options: Date[]) => string } = {}): Appointment {
     const user = this.user(c, userId);
+    const busy = [...this.busyFor(c, userId), ...(opts.extraBusy ?? [])];
     // Reemplaza una propuesta anterior sin respuesta.
     for (const a of Object.values(c.db.appointments)) {
       if (a.userId === userId && a.status === 'proposed') delete c.db.appointments[a.id];
     }
     // La semana objetivo es la del primer horario posible; el agente decide split y duración para esa semana.
-    const [probe] = nextSlots(user, c.now, 1, this.taken(c, userId), this.busyFor(c, userId));
+    const [probe] = nextSlots(user, c.now, 1, this.taken(c, userId), busy);
     const targetMonday = probe ? mondayOf(probe) : mondayOf(new Date(c.now.getTime() + 7 * 86400_000));
     this.autoPlanWeek(c, user, targetMonday);
-    const options = nextSlots(user, c.now, 2, this.taken(c, userId), this.busyFor(c, userId));
+    const options = nextSlots(user, c.now, 2, this.taken(c, userId), busy);
     if (options.length === 0) throw new DomainError('no_slots', 'No hay horarios disponibles', 409);
     const appt: Appointment = {
       id: shortId('a'),
@@ -386,7 +388,7 @@ export class Engine {
     const connect = this.connectButton(c, user);
     if (connect) buttons.push(connect);
     this.event(c, userId, 'capture_sent', appt.id);
-    this.emit(c, userId, { text: T.capture(user.name, user.sessionMin ?? 40), buttons });
+    this.emit(c, userId, { text: opts.describe ? opts.describe(options) : T.capture(user.name, user.sessionMin ?? 40), buttons });
     return appt;
   }
 
@@ -463,6 +465,11 @@ export class Engine {
   }
 
   private travelWarmupText(c: Ctx, user: User, appt: Appointment | undefined): string {
+    if (user.commute) {
+      // Su trayecto real: camina la mayor parte y trota un tramo. Sale con ese tiempo de anticipación.
+      const m = mixedTravelMinutes(user.commute);
+      return T.travelWarmup({ walkMin: m.walkPart, jogMin: m.jogPart, mobilityMin: 5, leaveMin: m.total });
+    }
     const minutes = appt?.startsAt ? this.freeBefore(c, user, appt) : 20;
     return T.travelWarmup(buildTravelWarmup(minutes));
   }
@@ -757,6 +764,75 @@ export class Engine {
     }
   }
 
+  /** Lo que hay en su calendario los próximos 7 días (reuniones y citas), en texto de plantilla. */
+  private async scheduleText(c: Ctx, user: User): Promise<string> {
+    type Row = { start: number; end: number; title: string };
+    const rows: Row[] = [];
+    const g = this.google;
+    const link = c.db.google?.[user.id];
+    if (g && link) {
+      try {
+        const events = await withToken(g, link, c.now.getTime(), (t) => listEvents(t, c.now.getTime(), c.now.getTime() + 7 * 86400_000));
+        for (const e of events as any[]) {
+          if (e.cancelled || e.transparent || !e.start?.includes('T')) continue;
+          rows.push({ start: Date.parse(e.start), end: Date.parse(e.end), title: e.isLaCita ? 'Tu cita contigo' : e.title || 'Ocupado' });
+        }
+      } catch (err) {
+        console.warn(JSON.stringify({ evt: 'gcal_list_error', userId: user.id, message: (err as Error).message }));
+      }
+    }
+    if (!rows.length) {
+      for (const a of Object.values(c.db.appointments)) {
+        if (a.userId === user.id && a.startsAt && (a.status === 'confirmed' || a.status === 'reminded') && new Date(a.startsAt) > c.now) {
+          rows.push({ start: Date.parse(a.startsAt), end: Date.parse(a.startsAt) + a.durationMin * 60_000, title: 'Tu cita contigo' });
+        }
+      }
+    }
+    rows.sort((x, y) => x.start - y.start);
+    if (!rows.length) return T.scheduleEmpty();
+    const lines = rows.slice(0, 12).map((r) => {
+      const p = localParts(new Date(r.start));
+      return `• ${dayName(p.weekday)} ${p.day}, ${formatTime(new Date(r.start))}–${formatTime(new Date(r.end))}: ${r.title}`;
+    });
+    return [T.scheduleHeader(), ...lines].join('\n');
+  }
+
+  /**
+   * «¿Qué tengo agendado? / ¿qué hora me recomiendas?»: cuenta su calendario y recomienda con lo que ella contó
+   * (una reunión que se puede alargar, cuánto demora en llegar). Nunca agenda sola: deja opciones para elegir.
+   */
+  private async advise(c: Ctx, user: User, text: string) {
+    const lower = text.toLowerCase();
+    const commute = parseCommute(text);
+    if (commute) user.commute = commute;
+    if (ASKS_SCHEDULE.test(lower)) this.emit(c, user.id, { text: await this.scheduleText(c, user) });
+
+    const meeting = parseMeetingMention(text, c.now);
+    const travel = user.commute ? mixedTravelMinutes(user.commute) : null;
+    // La reunión (más lo que tarda en llegar) se cuenta como tiempo ocupado al elegir la hora.
+    const extraBusy: Busy[] = meeting
+      ? [{ start: meeting.start.getTime(), end: meeting.end.getTime() + (travel?.total ?? 20) * 60_000 }]
+      : [];
+    this.startCapture(c, user.id, {
+      extraBusy,
+      describe: (options) =>
+        T.advice({
+          meeting: meeting
+            ? {
+                day: `${dayName(localParts(meeting.start).weekday)} ${localParts(meeting.start).day}`,
+                start: formatTime(meeting.start),
+                end: formatTime(meeting.end),
+                mayRunLong: meeting.mayRunLong,
+              }
+            : undefined,
+          commute: user.commute && travel ? { walkMin: user.commute.walkMin, jogMin: user.commute.jogMin, mixed: travel.total } : undefined,
+          sameDay: !!meeting && !!options[0] && dateKey(localParts(options[0])) === dateKey(localParts(meeting.start)),
+          firstOption: options[0] ? formatTime(options[0]) : '',
+          window: user.window,
+        }),
+    });
+  }
+
   private latestProposed(c: Ctx, userId: string): Appointment | undefined {
     return Object.values(c.db.appointments)
       .filter((a) => a.userId === userId && a.status === 'proposed')
@@ -824,7 +900,7 @@ export class Engine {
     const placeable = intent === 'unknown' || intent === 'other_hour' || intent === 'move' || intent === 'propose' || intent === 'warmup';
     const waitingHour = p?.kind === 'other_hour';
     const target = p ? c.db.appointments[p.apptId] : (this.upcoming(c, user.id) ?? this.latestProposed(c, user.id));
-    if (placeable && target && (!asksQuestion || waitingHour || intent === 'warmup')) {
+    if (placeable && target && (!asksQuestion || waitingHour)) {
       const lower = text.toLowerCase();
       // "No puedo a las 19:15": la hora mencionada es la que no sirve, salvo que proponga otra ("mejor el miércoles").
       const cantGo = intent === 'move' && !waitingHour && /\bno (pueda|puedo|podr[eé]|alcanzo|voy)\b/.test(lower);
@@ -865,6 +941,9 @@ export class Engine {
         return;
       case 'skip_week':
         this.skipWeek(c, user.id);
+        return;
+      case 'advise':
+        await this.advise(c, user, text);
         return;
       case 'warmup': {
         const next = this.upcoming(c, user.id);

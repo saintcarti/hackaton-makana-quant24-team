@@ -200,6 +200,10 @@ Con Google conectado el agente crea el evento y lo **mueve** (mismo evento) cuan
 
 Sin que ella pregunte, el agente propone movimiento en los tiempos muertos: (1) el recordatorio del día trae un tercer mensaje, «Para llegar con el cuerpo listo al gym», con caminata a paso ligero y, si hay 12+ min libres antes de la cita, trote suave al final (hasta 20 min en total, según lo que deje la reunión anterior del calendario); (2) en cada `tick`, si el día de la cita tiene un hueco de 10+ min entre dos reuniones (entre 09:00 y 19:00 y al menos 45 min antes de la cita), manda una sola pausa activa de 3 o 5 movimientos sin equipo. También responde cuando ella pregunta («¿qué me recomiendas para calentar?», «me iré caminando…»), y si la pregunta viene junto con la hora, agenda **y** contesta. Todo es texto de plantilla, sin cifras del cuerpo. R4: con pausa por dolor no se manda nada de esto.
 
+### Recomendar una hora con lo que ella cuenta
+
+Si Camila pregunta qué tiene agendado o qué hora le conviene («¿qué hora me recomiendas?»), el agente **no agenda**: responde con su calendario (próximos 7 días, con título y hora) y propone opciones para elegir. Entiende la reunión que ella menciona («una reunión el jueves a las 7 de la tarde, lo más probable es que se alargue»: la cuenta como ocupada 60 min, o 90 si dice que puede alargarse) y cuánto demora en llegar («20 minutos caminando, 15 si troto» → `user.commute`; el trayecto mezclado cuenta ~70 % caminando y ~30 % trotando). Esa reunión más el trayecto se descuentan al elegir la hora; si el mismo día no calza con su ventana, ofrece otros días y lo dice. Después el calentamiento usa su trayecto real («Sal 19 min antes de tu cita…»). Una pregunta nunca agenda ni mueve: solo una hora dicha como respuesta («Otra hora» abierta) o una orden («cámbiala para las 20:00») lo hace.
+
 ### Reglas de la sesión y disponibilidad
 
 | Método | Ruta | Cuerpo → respuesta |
