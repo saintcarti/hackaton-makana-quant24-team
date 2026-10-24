@@ -8,7 +8,7 @@ import SessionSetup from './components/SessionSetup';
 import SixWeeks from './components/SixWeeks';
 import WeekCalendar, { type GoogleState, type Suggestion } from './components/WeekCalendar';
 import { useMessages } from './hooks/useMessages';
-import { api, ApiError, apiPointsToViewerMachine, getApiBase } from './lib/api';
+import { api, ApiError, apiPointsToViewerMachine, getApiBase, getSession, setSession } from './lib/api';
 import type { AppointmentView, CalendarWeek, GoogleStatus, Summary, User } from './lib/api-types';
 import { allDaySegments, toSegments } from './lib/calendar';
 import { fitWeek, pickSuggestions, type FitEntry, type MovedFrom, type TakenInterval } from './lib/fit';
@@ -195,7 +195,8 @@ export default function App() {
   /** Lista de usuarias + reconciliación: si la seleccionada ya no existe (p. ej. tras un reset), vuelve a la demo. */
   const syncUsers = useCallback((list: User[], demoId: string) => {
     setUsers(list);
-    setUserId((cur) => (cur && list.some((u) => u.id === cur) ? cur : demoId));
+    const own = getSession()?.userId;
+    setUserId((cur) => (cur && list.some((u) => u.id === cur) ? cur : own && list.some((u) => u.id === own) ? own : demoId));
   }, []);
 
   useEffect(preloadGoogle, []);
@@ -310,7 +311,9 @@ export default function App() {
     };
   }, [userId, weekOf, schedWeekOf, refreshKey, messages.length, showToast, applyServerClock]);
 
-  const isDemoUser = userId !== null && userId === demoUserId;
+  // Una usuaria real que entró con su código también ve su calendario y reglas; el calendario de ejemplo es solo de la sintética.
+  const isSynthDemo = userId !== null && userId === demoUserId;
+  const isDemoUser = userId !== null && (userId === demoUserId || userId === getSession()?.userId);
 
   // Estado de la conexión de Google en el servidor; se vuelve a consultar al volver a la pestaña (tras autorizar en Google).
   useEffect(() => {
@@ -402,9 +405,9 @@ export default function App() {
   }, [google, cal?.weekOf, userId, isDemoUser]);
 
   // Plan B sin Google ni red (R6): la semana de ejemplo de Camila sintética, rotulada como inventada.
-  const sampleActive = sampleOn && !google && !srvConnected && isDemoUser;
+  const sampleActive = sampleOn && !google && !srvConnected && isSynthDemo;
   useEffect(() => {
-    if (google || srvConnected || !cal || !userId || !isDemoUser) return;
+    if (google || srvConnected || !cal || !userId || !isSynthDemo) return;
     if (!sampleOn) {
       setEvents([]);
       return;
@@ -412,7 +415,7 @@ export default function App() {
     const evs = sampleWorkWeek(cal.weekOf);
     setEvents(evs);
     api.syncBusy(userId, cal.weekOf, busyIntervals(evs)).catch(() => undefined);
-  }, [google, srvConnected, sampleOn, cal?.weekOf, userId, isDemoUser]);
+  }, [google, srvConnected, sampleOn, cal?.weekOf, userId, isSynthDemo]);
 
   function toggleSample() {
     setSampleOn((on) => {
@@ -695,6 +698,13 @@ export default function App() {
     setEntered(true);
   }
 
+  /** Entró con el código de Telegram: la sesión ya quedó guardada; se abre su propia conversación. */
+  function enterWithCode(uid: string) {
+    writeDemoFlag(true);
+    setUserId(uid);
+    setEntered(true);
+  }
+
   function signOut() {
     signOutGoogle(google);
     setGoogle(null);
@@ -712,11 +722,12 @@ export default function App() {
     setView('camila');
     setPrefsNote(null);
     writeDemoFlag(false);
+    setSession(null);
     setEntered(false);
   }
 
   if (!entered) {
-    return <Login onGoogle={connectGoogle} onDemo={enterDemo} telegramBot={TELEGRAM_BOT} />;
+    return <Login onGoogle={connectGoogle} onDemo={enterDemo} onCode={enterWithCode} telegramBot={TELEGRAM_BOT} />;
   }
 
   const chatUsers = users.filter((u) => u.synthetic || u.channel.type === 'telegram');

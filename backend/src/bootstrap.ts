@@ -24,6 +24,8 @@ export function createEngine(opts: { env: EnvVars; store: Store; ai?: AiRunner |
   const app = createApp(engine, {
     adminToken: env.ADMIN_TOKEN || undefined,
     telegramSecret: env.TELEGRAM_WEBHOOK_SECRET || undefined,
+    sessionSecret: env.SESSION_SECRET || undefined,
+    inviteCode: env.INVITE_CODE || undefined,
     corsOrigin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map((s) => s.trim()) : '*',
   });
   return { engine, app };

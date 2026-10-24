@@ -57,6 +57,10 @@ export class TelegramChannel {
     return sent?.result?.message_id ?? null;
   }
 
+  async sendText(chatId: number, text: string) {
+    await this.call('sendMessage', { chat_id: chatId, text });
+  }
+
   /** Quita los botones de un mensaje y, si se da `text`, lo deja con la elección marcada. No lanza: el mensaje puede ser muy viejo. */
   async clearButtons(chatId: number, messageId: number, text?: string) {
     try {

@@ -95,6 +95,20 @@ export const T = {
     [`Tienes un rato libre entre reuniones (${gap} min). Una pausa activa para soltar el cuerpo antes del gym:`, ...moves.map((m) => `• ${m}`), 'Sin apuro y sin dolor; si algo te molesta, para.'].join('\n'),
   noRoutine: () => 'Todavía no tengo una rutina para ti. Agenda tu cita y la armo según el tiempo que tengas ese día.',
   resumed: () => 'Gracias por contarme. Retomamos: desde ahora vuelvo a organizar tus sesiones por grupos.',
+  betaClosed: () => 'Hola. gogym está en beta cerrada por ahora. Si tienes un código de invitación, escríbelo así: /start TU-CÓDIGO.',
+  welcome: () =>
+    'Hola, soy gogym. Te ayudo a ordenar tu semana para que el gym siempre tenga un hueco, y a recuperarlo si una reunión se alarga. Esta es una beta con datos de prueba: guardo solo lo necesario para agendar y puedes borrar todo cuando quieras con /borrar.',
+  askPerWeek: () => '¿Cuántas veces por semana quieres ir?',
+  askCalendar: () =>
+    'Conecta tu Google Calendar para que mire tus reuniones y encuentre los huecos (antes del trabajo, al almuerzo o después). Solo leo horas ocupadas y creo tus citas; lo puedes desconectar cuando quieras.',
+  onboardDone: () => 'Listo, quedó configurado. Te escribo el domingo con tu semana. Mientras tanto, estos son los huecos que veo:',
+  loginCode: (code: string) => `Tu código para entrar a la web es ${code}. Vale 10 minutos y sirve una sola vez.`,
+  deleteAsk: () => '¿Borro todo lo tuyo (citas, chat y la conexión con tu calendario)? No se puede deshacer.',
+  deleteCancelled: () => 'Está bien, no borré nada.',
+  deleted: () => 'Listo, borré tus datos y la conexión con tu calendario. Si quieres volver, escribe /start con tu código.',
+  privacy: () =>
+    'Guardo solo lo necesario: tus citas, este chat y, si lo conectas, tus horas ocupadas (sin títulos de reuniones en mis datos) y el permiso de tu calendario. Esta es una beta con datos de prueba. Escribe /borrar para eliminar todo.',
+  comeback: () => 'Hace unos días no nos vimos y está bien: las semanas se complican. Empecemos suave, con una sola sesión en el hueco que más te acomode.',
   outsideGym: (when: string, open: string, close: string) =>
     `A las ${when} el gym está cerrado: abre de ${open} a ${close}. Estas son las horas que sí calzan con tu calendario.`,
   slotChosenCal: (label: string, venue: string) => `Listo: ${label}, ${venue}. Ya quedó en tu Google Calendar.`,
@@ -120,6 +134,10 @@ export const T = {
   calendarUnavailable: () => 'Por ahora no puedo conectar tu calendario. Igual te dejo cada cita con el botón para agregarla.',
   proposeOffer: () => 'Te propongo horarios para esta semana.',
   btn: {
+    perWeek: (n: number) => (n === 1 ? '1 vez' : `${n} veces`),
+    later: 'Más tarde',
+    deleteYes: 'Sí, borrar todo',
+    deleteNo: 'No, mejor no',
     otherHour: 'Otra hora',
     skipWeek: 'Esta semana no',
     move: 'Mover cita',
